@@ -1,22 +1,211 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
 
-export default function JarvisPage() {
+import { useState, useRef, useEffect, useCallback } from "react";
+
+// ═══════════════════════════════════════════════════════════
+// J.A.R.V.I.S. — NEURAL INTERFACE v2.0
+// Cerebro 3D con partículas + Chat inteligente
+// ═══════════════════════════════════════════════════════════
+
+const PARTICLE_COUNT = 2800;
+const SYNAPSE_COUNT = 400;
+const BRAIN_RADIUS = 180;
+
+export default function JarvisNeural() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speakEnabled, setSpeakEnabled] = useState(true);
   const [showWelcome, setShowWelcome] = useState(true);
+  const [neuralActivity, setNeuralActivity] = useState(0);
+  const [panelOpen, setPanelOpen] = useState(false);
+
   const chatRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
   const historyRef = useRef([]);
+  const canvasRef = useRef(null);
+  const animFrameRef = useRef(null);
+  const brainStateRef = useRef({ thinking: false, intensity: 0 });
 
-  useEffect(() => { initSpeechRecognition(); inputRef.current?.focus(); }, []);
-  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [messages]);
+  // ── THREE.JS BRAIN ──────────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  function initSpeechRecognition() {
+    const ctx = canvas.getContext("2d");
+    let width = canvas.parentElement.clientWidth;
+    let height = canvas.parentElement.clientHeight;
+    canvas.width = width;
+    canvas.height = height;
+
+    // Generate brain-shaped particle cloud
+    const particles = [];
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      let r = BRAIN_RADIUS * (0.6 + 0.4 * Math.random());
+      const y = Math.cos(phi) * r;
+      const flatY = y * 0.7;
+      const sulcus = Math.sin(theta * 3 + phi * 2) * 12;
+      r += sulcus;
+      const x = Math.sin(phi) * Math.cos(theta) * r * 1.15;
+      const z = Math.sin(phi) * Math.sin(theta) * r * 0.95;
+      const fissureGap = Math.abs(x) < 8 ? (8 - Math.abs(x)) * 0.5 : 0;
+      particles.push({
+        x: x + (x > 0 ? fissureGap : -fissureGap),
+        y: flatY, z,
+        ox: x + (x > 0 ? fissureGap : -fissureGap),
+        oy: flatY, oz: z,
+        size: 0.8 + Math.random() * 1.8,
+        brightness: 0.3 + Math.random() * 0.5,
+        pulse: Math.random() * Math.PI * 2,
+        pulseSpeed: 0.01 + Math.random() * 0.03,
+        region: Math.floor(Math.random() * 6),
+        active: false, activationTime: 0,
+      });
+    }
+
+    // Generate synaptic connections
+    const synapses = [];
+    for (let i = 0; i < SYNAPSE_COUNT; i++) {
+      const a = Math.floor(Math.random() * PARTICLE_COUNT);
+      let b = Math.floor(Math.random() * PARTICLE_COUNT);
+      const dx = particles[a].ox - particles[b].ox;
+      const dy = particles[a].oy - particles[b].oy;
+      const dz = particles[a].oz - particles[b].oz;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist < 80 && dist > 10) {
+        synapses.push({ a, b, dist, signal: 0, signalSpeed: 0.005 + Math.random() * 0.02, active: false });
+      }
+    }
+
+    let rotY = 0, rotX = -0.15, autoRotate = true;
+    let mouseX = 0, mouseY = 0, targetRotY = 0, targetRotX = -0.15;
+    let time = 0;
+
+    const handleMouseMove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
+      mouseY = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
+      targetRotY = mouseX * 0.4;
+      targetRotX = -0.15 + mouseY * 0.2;
+    };
+    const handleResize = () => {
+      width = canvas.parentElement.clientWidth;
+      height = canvas.parentElement.clientHeight;
+      canvas.width = width;
+      canvas.height = height;
+    };
+    canvas.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("resize", handleResize);
+
+    function activateRegion(regionId, intensity) {
+      particles.forEach(p => {
+        if (p.region === regionId || Math.random() < intensity * 0.1) {
+          p.active = true; p.activationTime = time;
+        }
+      });
+      synapses.forEach(s => {
+        const pa = particles[s.a];
+        const pb = particles[s.b];
+        if (pa.active || pb.active) { s.active = true; s.signal = 0; }
+      });
+    }
+
+    function render() {
+      time += 0.016;
+      ctx.clearRect(0, 0, width, height);
+      const thinking = brainStateRef.current.thinking;
+      const intensity = brainStateRef.current.intensity;
+      rotY += (targetRotY - rotY) * 0.05;
+      rotX += (targetRotX - rotX) * 0.05;
+      if (autoRotate) targetRotY += 0.001;
+      if (thinking) {
+        if (Math.random() < 0.15) activateRegion(Math.floor(Math.random() * 6), intensity);
+      } else {
+        if (Math.random() < 0.02) activateRegion(Math.floor(Math.random() * 6), 0.3);
+      }
+      const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+      const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+      const cx = width / 2, cy = height / 2;
+      const scale = Math.min(width, height) / 500;
+
+      const projected = particles.map((p, i) => {
+        const breathe = 1 + Math.sin(time * 0.5) * 0.008;
+        let px = p.ox * breathe, py = p.oy * breathe, pz = p.oz * breathe;
+        p.pulse += p.pulseSpeed;
+        const pulseMag = Math.sin(p.pulse) * 2;
+        const nx = px / BRAIN_RADIUS, ny = py / BRAIN_RADIUS, nz = pz / BRAIN_RADIUS;
+        px += nx * pulseMag; py += ny * pulseMag; pz += nz * pulseMag;
+        const rx1 = px * cosY - pz * sinY;
+        const rz1 = px * sinY + pz * cosY;
+        const ry2 = py * cosX - rz1 * sinX;
+        const rz2 = py * sinX + rz1 * cosX;
+        if (p.active) { const elapsed = time - p.activationTime; if (elapsed > 1.5) p.active = false; }
+        return { x: cx + rx1 * scale, y: cy + ry2 * scale, z: rz2, size: p.size * scale, brightness: p.brightness, region: p.region, active: p.active, activationTime: p.activationTime, idx: i };
+      });
+      projected.sort((a, b) => a.z - b.z);
+
+      synapses.forEach(s => {
+        const pa = projected.find(p => p.idx === s.a);
+        const pb = projected.find(p => p.idx === s.b);
+        if (!pa || !pb) return;
+        const avgZ = (pa.z + pb.z) / 2;
+        const depthAlpha = Math.max(0.02, Math.min(0.25, (avgZ + BRAIN_RADIUS) / (BRAIN_RADIUS * 2) * 0.3));
+        if (s.active) {
+          s.signal += s.signalSpeed;
+          if (s.signal > 1) { s.active = false; s.signal = 0; }
+          const gradient = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
+          const signalPos = s.signal;
+          const glowColor = thinking ? "0,210,255" : "0,255,136";
+          gradient.addColorStop(Math.max(0, signalPos - 0.15), `rgba(${glowColor},0)`);
+          gradient.addColorStop(signalPos, `rgba(${glowColor},${0.6 + intensity * 0.4})`);
+          gradient.addColorStop(Math.min(1, signalPos + 0.15), `rgba(${glowColor},0)`);
+          ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+          ctx.strokeStyle = gradient; ctx.lineWidth = 1.5 * scale; ctx.stroke();
+        } else {
+          ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+          ctx.strokeStyle = `rgba(0,180,220,${depthAlpha})`; ctx.lineWidth = 0.3 * scale; ctx.stroke();
+        }
+      });
+
+      projected.forEach(p => {
+        const depthFactor = (p.z + BRAIN_RADIUS) / (BRAIN_RADIUS * 2);
+        const alpha = 0.2 + depthFactor * 0.6;
+        let r = 0, g = 150, b = 200;
+        const regions = [[0,200,255],[0,255,180],[100,150,255],[0,255,100],[150,100,255],[0,230,230]];
+        [r, g, b] = regions[p.region] || regions[0];
+        if (p.active) {
+          const elapsed = time - p.activationTime;
+          const flash = Math.max(0, 1 - elapsed / 1.5);
+          r = Math.min(255, r + 155 * flash); g = Math.min(255, g + 105 * flash); b = Math.min(255, b + 55 * flash);
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 4, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${r},${g},${b},${flash * 0.15})`; ctx.fill();
+        }
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${r},${g},${b},${alpha * p.brightness})`; ctx.fill();
+      });
+
+      const coreGlow = thinking ? 0.08 + intensity * 0.06 : 0.04;
+      const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, BRAIN_RADIUS * scale);
+      coreGrad.addColorStop(0, `rgba(0,212,255,${coreGlow})`);
+      coreGrad.addColorStop(0.5, `rgba(0,180,255,${coreGlow * 0.5})`);
+      coreGrad.addColorStop(1, "rgba(0,100,200,0)");
+      ctx.fillStyle = coreGrad; ctx.fillRect(0, 0, width, height);
+      animFrameRef.current = requestAnimationFrame(render);
+    }
+    render();
+    return () => {
+      canvas.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("resize", handleResize);
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, []);
+
+  // ── SPEECH RECOGNITION ──────────────────────────────────
+  useEffect(() => {
     const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
     if (!SR) return;
     const recognition = new SR();
@@ -24,7 +213,7 @@ export default function JarvisPage() {
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
-      const transcript = Array.from(event.results).map((r) => r[0].transcript).join("");
+      const transcript = Array.from(event.results).map(r => r[0].transcript).join("");
       setInput(transcript);
       if (event.results[event.results.length - 1].isFinal) {
         setIsListening(false);
@@ -34,7 +223,19 @@ export default function JarvisPage() {
     recognition.onerror = () => setIsListening(false);
     recognition.onend = () => setIsListening(false);
     recognitionRef.current = recognition;
-  }
+  }, []);
+
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [messages]);
+
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.code === "Space") { e.preventDefault(); toggleVoice(); }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
 
   function toggleVoice() {
     if (!recognitionRef.current) return;
@@ -43,116 +244,232 @@ export default function JarvisPage() {
   }
 
   function speak(text) {
-    if (!speakEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
+    if (!speakEnabled || !window.speechSynthesis) return;
     const clean = text.replace(/[*#_\`~>\[\]()!]/g, "").replace(/\n+/g, ". ");
     const u = new SpeechSynthesisUtterance(clean);
     u.lang = "es-ES"; u.rate = 1.05; u.pitch = 0.95;
     const voices = window.speechSynthesis.getVoices();
-    const esVoice = voices.find((v) => v.lang.startsWith("es"));
+    const esVoice = voices.find(v => v.lang.startsWith("es"));
     if (esVoice) u.voice = esVoice;
     window.speechSynthesis.speak(u);
   }
 
-  async function sendMessage(text, isVoice = false) {
+  const sendMessage = useCallback(async (text, isVoice = false) => {
     const msg = text || input.trim();
     if (!msg || isProcessing) return;
-    setIsProcessing(true); setShowWelcome(false); setInput("");
+    setIsProcessing(true); setShowWelcome(false); setPanelOpen(true);
+    setInput(""); setNeuralActivity(0.8);
+    brainStateRef.current = { thinking: true, intensity: 0.8 };
     const userMsg = { role: "user", content: msg };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages(prev => [...prev, userMsg]);
     historyRef.current.push(userMsg);
-    setMessages((prev) => [...prev, { role: "typing" }]);
+    setMessages(prev => [...prev, { role: "typing" }]);
     try {
       const res = await fetch("/api/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg, history: historyRef.current.slice(-40), isVoice }),
       });
       const data = await res.json();
       const assistantMsg = { role: "assistant", content: data.response };
-      setMessages((prev) => prev.filter((m) => m.role !== "typing").concat(assistantMsg));
+      setMessages(prev => prev.filter(m => m.role !== "typing").concat(assistantMsg));
       historyRef.current.push(assistantMsg);
       if (isVoice || speakEnabled) speak(data.response);
     } catch {
-      setMessages((prev) => prev.filter((m) => m.role !== "typing").concat({ role: "assistant", content: "Error de conexion." }));
+      setMessages(prev => prev.filter(m => m.role !== "typing").concat({
+        role: "assistant", content: "Error de conexion. Verificando sistemas..."
+      }));
     }
-    setIsProcessing(false); inputRef.current?.focus();
-  }
+    brainStateRef.current = { thinking: false, intensity: 0.2 };
+    setNeuralActivity(0.2); setIsProcessing(false);
+    inputRef.current?.focus();
+  }, [input, isProcessing, speakEnabled]);
 
   function clearChat() {
     fetch("/api/clear", { method: "POST" }).catch(() => {});
-    setMessages([]); historyRef.current = []; setShowWelcome(true);
+    setMessages([]); historyRef.current = [];
+    setShowWelcome(true); setPanelOpen(false);
     window.speechSynthesis?.cancel();
   }
 
-  function handleKey(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
-
-  function fmt(text) {
-    if (!text) return "";
-    return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-      .replace(/\`\`\`([\s\S]*?)\`\`\`/g,'<pre style="background:#0d1117;border:1px solid #1e2d42;border-radius:8px;padding:12px;overflow-x:auto;margin:8px 0"><code>$1</code></pre>')
-      .replace(/\`([^\`]+)\`/g,'<code style="background:rgba(0,212,255,0.1);color:#00d4ff;padding:2px 6px;border-radius:4px">$1</code>')
-      .replace(/\*\*(.+?)\*\*/g,'<strong style="color:#00d4ff">$1</strong>')
-      .replace(/\*(.+?)\*/g,'<em style="color:#00ff88">$1</em>')
-      .replace(/\n/g,"<br>");
+  function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
 
-  const sugs = ["Que hora es?", "Crea una lista de tareas", "Dame una idea de proyecto", "Resume las noticias tech"];
+  const suggestions = [
+    { icon: "\u{1F9E0}", text: "Dime todas tus capacidades" },
+    { icon: "\u{1F321}", text: "Que tiempo hace en Orihuela" },
+    { icon: "\u{1F50D}", text: "Busca noticias de tecnologia" },
+    { icon: "\u{1F4DD}", text: "Crea una nota importante" },
+    { icon: "\u{2705}", text: "Crea tarea: reunion manana" },
+    { icon: "\u{1F3E0}", text: "Enciende la luz del salon" },
+    { icon: "\u{1F4E7}", text: "Redacta email profesional" },
+    { icon: "\u{1F552}", text: "Que hora es ahora" },
+  ];
 
   return (
-    <div style={{fontFamily:"'Rajdhani',sans-serif",background:"#0a0e17",color:"#e0e8f0",height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-      <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 24px",background:"linear-gradient(180deg,#0f1520,#0a0e17)",borderBottom:"1px solid #1e2d42",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <div style={{width:44,height:44,borderRadius:"50%",background:"radial-gradient(circle,#00d4ff,transparent 70%)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="#00d4ff"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-          </div>
-          <div>
-            <h1 style={{fontFamily:"'Orbitron',sans-serif",fontSize:18,fontWeight:700,color:"#00d4ff",letterSpacing:4,margin:0}}>J.A.R.V.I.S.</h1>
-            <span style={{fontSize:11,color:"#7a8a9e",letterSpacing:1}}>Asistente Personal de IA</span>
-          </div>
+    <div style={S.container}>
+      <div style={S.canvasWrap}>
+        <canvas ref={canvasRef} style={S.canvas} />
+        <div style={S.ambientOverlay} />
+      </div>
+      <header style={S.topBar}>
+        <div style={S.brand}>
+          <div style={{...S.statusDot, background: isProcessing ? "#ff6b35" : "#00ff88", boxShadow: isProcessing ? "0 0 12px #ff6b35" : "0 0 12px #00ff88"}} />
+          <h1 style={S.title}>J.A.R.V.I.S.</h1>
+          <span style={S.version}>NEURAL v2.0</span>
         </div>
-        <div style={{display:"flex",gap:10,alignItems:"center"}}>
-          <div style={{width:8,height:8,borderRadius:"50%",background:"#00ff88"}}/>
-          <span style={{fontSize:12,color:"#00ff88"}}>En linea</span>
-          <button onClick={clearChat} style={{background:"#1a2332",border:"1px solid #1e2d42",color:"#7a8a9e",width:36,height:36,borderRadius:8,cursor:"pointer",fontSize:16}}>x</button>
+        <div style={S.topRight}>
+          <div style={S.neuralMeter}>
+            <span style={S.meterLabel}>Neural</span>
+            <div style={S.meterTrack}>
+              <div style={{...S.meterFill, width: `${neuralActivity * 100}%`, background: neuralActivity > 0.5 ? "#00d4ff" : "#00ff88"}} />
+            </div>
+          </div>
+          <button onClick={() => setSpeakEnabled(!speakEnabled)} style={{...S.iconBtn, color: speakEnabled ? "#00d4ff" : "#4a5568"}}>
+            {speakEnabled ? "\u{1F50A}" : "\u{1F507}"}
+          </button>
+          <button onClick={clearChat} style={S.iconBtn}>{"\u{1F5D1}"}</button>
         </div>
       </header>
-
-      <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column",gap:16,scrollBehavior:"smooth"}}>
-        {showWelcome && (
-          <div style={{textAlign:"center",padding:"60px 20px",color:"#7a8a9e"}}>
-            <h2 style={{fontFamily:"'Orbitron',sans-serif",fontSize:28,color:"#00d4ff",marginBottom:8,letterSpacing:3}}>Bienvenido, senor</h2>
-            <p style={{fontSize:16,marginBottom:30}}>Soy JARVIS, su asistente personal. En que puedo ayudarle hoy?</p>
-            <div style={{display:"flex",flexWrap:"wrap",gap:10,justifyContent:"center",maxWidth:600,margin:"0 auto"}}>
-              {sugs.map((s,i)=>(<button key={i} style={{background:"#111827",border:"1px solid #1e2d42",borderRadius:12,padding:"10px 16px",cursor:"pointer",fontSize:13,color:"#e0e8f0",fontFamily:"'Rajdhani',sans-serif"}} onClick={()=>{setInput(s);sendMessage(s);}}>{s}</button>))}
+      {showWelcome && (
+        <div style={S.welcomeOverlay}>
+          <div style={S.welcomeContent}>
+            <div style={S.welcomeGlow} />
+            <h2 style={S.welcomeTitle}>Buenos dias, senor</h2>
+            <p style={S.welcomeSub}>Todos los sistemas operativos. Listo para asistirle.</p>
+            <div style={S.sugGrid}>
+              {suggestions.map((s, i) => (
+                <button key={i} style={S.sugBtn}
+                  onClick={() => sendMessage(s.text)}
+                  onMouseEnter={e => { e.target.style.borderColor = "#00d4ff"; e.target.style.background = "rgba(0,212,255,0.08)"; }}
+                  onMouseLeave={e => { e.target.style.borderColor = "rgba(0,212,255,0.15)"; e.target.style.background = "rgba(0,15,30,0.6)"; }}
+                >
+                  <span style={S.sugIcon}>{s.icon}</span>
+                  <span style={S.sugText}>{s.text}</span>
+                </button>
+              ))}
             </div>
           </div>
-        )}
-        {messages.map((msg,i)=>{
-          if(msg.role==="typing") return (<div key={i} style={{display:"flex",gap:12,alignSelf:"flex-start"}}><div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#0099cc,#00d4ff)",color:"#0a0e17",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:14,fontWeight:700}}>J</div><div style={{background:"#111827",border:"1px solid #1e2d42",borderRadius:16,padding:"12px 16px",fontSize:15}}>...</div></div>);
-          const isU=msg.role==="user";
-          return (<div key={i} style={{display:"flex",gap:12,maxWidth:"85%",alignSelf:isU?"flex-end":"flex-start",flexDirection:isU?"row-reverse":"row"}}><div style={{width:36,height:36,borderRadius:"50%",background:isU?"linear-gradient(135deg,#6366f1,#8b5cf6)":"linear-gradient(135deg,#0099cc,#00d4ff)",color:isU?"white":"#0a0e17",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:14,fontWeight:700}}>{isU?"D":"J"}</div><div style={{background:isU?"#1a1f3d":"#111827",border:isU?"1px solid #2a2f5d":"1px solid #1e2d42",borderRadius:16,padding:"12px 16px",fontSize:15,lineHeight:1.6}} dangerouslySetInnerHTML={isU?undefined:{__html:fmt(msg.content)}}>{isU?msg.content:undefined}</div></div>);
-        })}
-      </div>
-
-      <div style={{padding:"16px 24px 20px",background:"linear-gradient(0deg,#0f1520,#0a0e17)",borderTop:"1px solid #1e2d42",flexShrink:0}}>
-        <div style={{display:"flex",gap:10,alignItems:"flex-end",maxWidth:900,margin:"0 auto"}}>
-          <div style={{flex:1,background:"#1a2332",border:"1px solid #1e2d42",borderRadius:16,display:"flex",padding:4}}>
-            <textarea ref={inputRef} value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={handleKey} placeholder={isListening?"Escuchando...":"Escribe un mensaje..."} rows={1} style={{flex:1,background:"none",border:"none",color:"#e0e8f0",fontFamily:"'Rajdhani',sans-serif",fontSize:15,padding:"10px 14px",resize:"none",maxHeight:120,lineHeight:1.5,outline:"none"}}/>
-          </div>
-          <button onClick={toggleVoice} style={{width:44,height:44,borderRadius:14,border:"1px solid "+(isListening?"#ff4444":"#1e2d42"),background:isListening?"rgba(255,68,68,0.15)":"#1a2332",color:isListening?"#ff4444":"#7a8a9e",cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>M</button>
-          <button onClick={()=>sendMessage()} disabled={!input.trim()||isProcessing} style={{width:44,height:44,borderRadius:14,border:"none",background:"#00d4ff",color:"#0a0e17",cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontWeight:700,opacity:(!input.trim()||isProcessing)?0.4:1}}>{">"}</button>
         </div>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8,padding:"0 4px"}}>
-          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#7a8a9e",cursor:"pointer"}}>
-            <span>Voz</span>
-            <input type="checkbox" checked={speakEnabled} onChange={(e)=>setSpeakEnabled(e.target.checked)} style={{display:"none"}}/>
-            <div style={{width:32,height:18,background:speakEnabled?"#0099cc":"#1e2d42",borderRadius:9,position:"relative"}}>
-              <div style={{width:14,height:14,background:"#e0e8f0",borderRadius:"50%",position:"absolute",top:2,left:2,transform:speakEnabled?"translateX(14px)":"none",transition:"transform 0.2s"}}/>
-            </div>
-          </label>
-          <span style={{fontSize:11,color:"#7a8a9e"}}>Ctrl+Shift+Espacio = voz</span>
+      )}
+      <div style={{...S.chatPanel, transform: panelOpen ? "translateX(0)" : "translateX(100%)", opacity: panelOpen ? 1 : 0}}>
+        <div ref={chatRef} style={S.chatMessages}>
+          {messages.map((msg, i) => {
+            if (msg.role === "typing") return (
+              <div key={i} style={S.msgRow}>
+                <div style={S.jarvisAvatar}>J</div>
+                <div style={S.bubbleJarvis}>
+                  <div style={S.typingDots}>
+                    <span style={{...S.tDot, animationDelay: "0s"}} />
+                    <span style={{...S.tDot, animationDelay: "0.2s"}} />
+                    <span style={{...S.tDot, animationDelay: "0.4s"}} />
+                  </div>
+                </div>
+              </div>
+            );
+            const isUser = msg.role === "user";
+            return (
+              <div key={i} style={{...S.msgRow, justifyContent: isUser ? "flex-end" : "flex-start"}}>
+                {!isUser && <div style={S.jarvisAvatar}>J</div>}
+                <div style={isUser ? S.bubbleUser : S.bubbleJarvis}
+                  dangerouslySetInnerHTML={isUser ? undefined : { __html: fmtMd(msg.content) }}
+                >{isUser ? msg.content : undefined}</div>
+                {isUser && <div style={S.userAvatar}>D</div>}
+              </div>
+            );
+          })}
         </div>
       </div>
-      <style>{"textarea:focus{outline:none} ::-webkit-scrollbar{width:6px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#1e2d42;border-radius:3px}"}</style>
+      <div style={S.inputBar}>
+        <div style={S.inputInner}>
+          <button onClick={toggleVoice}
+            style={isListening ? {...S.voiceBtn, ...S.voiceBtnActive} : S.voiceBtn}
+          >{"\u{1F3A4}"}</button>
+          <textarea ref={inputRef} value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKey}
+            placeholder={isListening ? "Escuchando..." : "Habla con JARVIS..."}
+            rows={1} style={S.textInput}
+          />
+          <button onClick={() => sendMessage()}
+            disabled={!input.trim() || isProcessing}
+            style={{...S.sendBtn, opacity: !input.trim() || isProcessing ? 0.3 : 1}}
+          >{"\u{27A4}"}</button>
+        </div>
+        <div style={S.inputHints}>
+          <span style={S.hint}>Ctrl+Shift+Espacio = voz</span>
+          {panelOpen && <button onClick={() => setPanelOpen(false)} style={S.minimizeBtn}>Minimizar chat</button>}
+          {!panelOpen && messages.length > 0 && <button onClick={() => setPanelOpen(true)} style={S.minimizeBtn}>Abrir chat ({messages.filter(m=>m.role!=="typing").length})</button>}
+        </div>
+      </div>
+      <style>{`
+        @keyframes typing-dot { 0%,60%,100%{opacity:.3;transform:scale(.8)} 30%{opacity:1;transform:scale(1)} }
+        @keyframes pulse-glow { 0%,100%{box-shadow:0 0 15px rgba(0,212,255,.15)} 50%{box-shadow:0 0 30px rgba(0,212,255,.3)} }
+        @keyframes pulse-red { 0%,100%{box-shadow:0 0 0 0 rgba(255,68,68,.3)} 50%{box-shadow:0 0 0 10px rgba(255,68,68,0)} }
+        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+        textarea:focus{outline:none}
+        ::-webkit-scrollbar{width:4px}
+        ::-webkit-scrollbar-track{background:transparent}
+        ::-webkit-scrollbar-thumb{background:#1e2d42;border-radius:2px}
+        *{box-sizing:border-box}
+      `}</style>
     </div>
   );
-  }
+}
+
+function fmtMd(text) {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/```([\s\S]*?)```/g, '<pre style="background:#0a1628;border:1px solid #1a2d45;border-radius:8px;padding:12px;overflow-x:auto;margin:8px 0;font-size:13px"><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code style="background:rgba(0,212,255,.1);color:#00d4ff;padding:2px 6px;border-radius:4px;font-size:13px">$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#00d4ff">$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em style="color:#00ff88">$1</em>')
+    .replace(/\n/g, "<br>");
+}
+
+const S = {
+  container: { fontFamily: "'Rajdhani',sans-serif", background: "#030810", color: "#e0e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" },
+  canvasWrap: { position: "absolute", inset: 0, zIndex: 0 },
+  canvas: { width: "100%", height: "100%", display: "block" },
+  ambientOverlay: { position: "absolute", inset: 0, background: "radial-gradient(ellipse at 50% 50%, transparent 30%, #030810 75%)", pointerEvents: "none" },
+  topBar: { position: "relative", zIndex: 10, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: "linear-gradient(180deg,rgba(3,8,16,.95),rgba(3,8,16,.6))", borderBottom: "1px solid rgba(0,212,255,.1)" },
+  brand: { display: "flex", alignItems: "center", gap: 10 },
+  statusDot: { width: 8, height: 8, borderRadius: "50%", transition: "all .3s" },
+  title: { fontFamily: "'Orbitron',sans-serif", fontSize: 16, fontWeight: 700, color: "#00d4ff", letterSpacing: 4, margin: 0 },
+  version: { fontSize: 10, color: "#4a6a8a", letterSpacing: 2, textTransform: "uppercase" },
+  topRight: { display: "flex", alignItems: "center", gap: 12 },
+  neuralMeter: { display: "flex", alignItems: "center", gap: 6 },
+  meterLabel: { fontSize: 10, color: "#4a6a8a", letterSpacing: 1, textTransform: "uppercase" },
+  meterTrack: { width: 60, height: 4, background: "#0a1628", borderRadius: 2, overflow: "hidden" },
+  meterFill: { height: "100%", borderRadius: 2, transition: "all .5s ease" },
+  iconBtn: { background: "none", border: "none", color: "#4a6a8a", fontSize: 16, cursor: "pointer", padding: 4, transition: "color .2s" },
+  welcomeOverlay: { position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" },
+  welcomeContent: { pointerEvents: "auto", textAlign: "center", maxWidth: 700, padding: "0 20px", position: "relative" },
+  welcomeGlow: { position: "absolute", top: "-100px", left: "50%", transform: "translateX(-50%)", width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle,rgba(0,212,255,.06),transparent 70%)", pointerEvents: "none" },
+  welcomeTitle: { fontFamily: "'Orbitron',sans-serif", fontSize: 28, color: "#00d4ff", marginBottom: 8, letterSpacing: 3, animation: "float 4s ease-in-out infinite" },
+  welcomeSub: { fontSize: 15, color: "#5a7a9a", marginBottom: 30, letterSpacing: 1 },
+  sugGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 8, maxWidth: 650, margin: "0 auto" },
+  sugBtn: { background: "rgba(0,15,30,.6)", border: "1px solid rgba(0,212,255,.15)", borderRadius: 10, padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all .2s", backdropFilter: "blur(10px)" },
+  sugIcon: { fontSize: 18, flexShrink: 0 },
+  sugText: { fontSize: 13, color: "#c0d0e0", fontFamily: "'Rajdhani',sans-serif", textAlign: "left" },
+  chatPanel: { position: "absolute", right: 0, top: 48, bottom: 80, width: "min(420px, 100vw)", zIndex: 8, background: "linear-gradient(180deg,rgba(3,8,16,.92),rgba(5,12,24,.95))", borderLeft: "1px solid rgba(0,212,255,.1)", transition: "all .4s cubic-bezier(.4,0,.2,1)", display: "flex", flexDirection: "column", backdropFilter: "blur(20px)" },
+  chatMessages: { flex: 1, overflowY: "auto", padding: "16px 14px", display: "flex", flexDirection: "column", gap: 12 },
+  msgRow: { display: "flex", gap: 8, alignItems: "flex-end" },
+  jarvisAvatar: { width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg,#0099cc,#00d4ff)", color: "#030810", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 },
+  userAvatar: { width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 },
+  bubbleJarvis: { background: "rgba(0,20,40,.7)", border: "1px solid rgba(0,212,255,.12)", borderRadius: "14px 14px 14px 4px", padding: "10px 14px", fontSize: 14, lineHeight: 1.6, maxWidth: "85%", backdropFilter: "blur(10px)" },
+  bubbleUser: { background: "rgba(99,102,241,.15)", border: "1px solid rgba(99,102,241,.2)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 14, lineHeight: 1.6, maxWidth: "85%" },
+  typingDots: { display: "flex", gap: 5, padding: "4px 0" },
+  tDot: { width: 6, height: 6, background: "#00d4ff", borderRadius: "50%", animation: "typing-dot 1.4s ease-in-out infinite" },
+  inputBar: { position: "relative", zIndex: 10, padding: "10px 20px 16px", background: "linear-gradient(0deg,rgba(3,8,16,.98),rgba(3,8,16,.7))", borderTop: "1px solid rgba(0,212,255,.08)" },
+  inputInner: { display: "flex", gap: 8, alignItems: "flex-end", maxWidth: 800, margin: "0 auto" },
+  voiceBtn: { width: 40, height: 40, borderRadius: 12, border: "1px solid rgba(0,212,255,.15)", background: "rgba(0,15,30,.6)", color: "#5a7a9a", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all .2s" },
+  voiceBtnActive: { background: "rgba(255,68,68,.15)", borderColor: "#ff4444", color: "#ff4444", animation: "pulse-red 1.5s ease-in-out infinite" },
+  textInput: { flex: 1, background: "rgba(0,15,30,.6)", border: "1px solid rgba(0,212,255,.12)", borderRadius: 12, color: "#e0e8f0", fontFamily: "'Rajdhani',sans-serif", fontSize: 15, padding: "10px 14px", resize: "none", maxHeight: 100, lineHeight: 1.4, backdropFilter: "blur(10px)" },
+  sendBtn: { width: 40, height: 40, borderRadius: 12, border: "none", background: "#00d4ff", color: "#030810", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontWeight: 700, transition: "all .2s" },
+  inputHints: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, padding: "0 4px" },
+  hint: { fontSize: 10, color: "#3a5a7a", letterSpacing: 1 },
+  minimizeBtn: { background: "none", border: "1px solid rgba(0,212,255,.15)", borderRadius: 6, color: "#5a7a9a", fontSize: 11, padding: "3px 10px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif", transition: "all .2s" },
+};

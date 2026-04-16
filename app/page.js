@@ -378,7 +378,7 @@ export default function JarvisNeural() {
             <div style={S.welcomeGlow} />
             <h2 style={S.welcomeTitle}>Buenos dias, senor</h2>
             <p style={S.welcomeSub}>Todos los sistemas operativos. Listo para asistirle.</p>
-            <p style={S.welcomeHint}>Pulse el boton rojo \u{1F534} para modo continuo de voz</p>
+            <p style={S.welcomeHint}>Pulse el boton rojo {"\ud83d\udd34"} para modo continuo de voz</p>
             <div style={S.sugGrid}>
               {suggestions.map((s, i) => (
                 <button key={i} style={S.sugBtn}
@@ -422,7 +422,7 @@ export default function JarvisNeural() {
             style={{...S.sendBtn, opacity: !input.trim() || isProcessing ? 0.3 : 1}}>{"\u{27A4}"}</button>
         </div>
         <div style={S.inputHints}>
-          <span style={S.hint}>Ctrl+Shift+Espacio = voz | \u{1F534} = modo continuo</span>
+          <span style={S.hint}>Ctrl+Shift+Espacio = voz | {"\ud83d\udd34"} = modo continuo</span>
           {panelOpen && <button onClick={() => setPanelOpen(false)} style={S.minimizeBtn}>Minimizar chat</button>}
           {!panelOpen && messages.length > 0 && <button onClick={() => setPanelOpen(true)} style={S.minimizeBtn}>Abrir chat ({messages.filter(m=>m.role!=="typing").length})</button>}
         </div>

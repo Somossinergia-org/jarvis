@@ -231,6 +231,25 @@ async def launch_url(req: dict):
     return {"message": open_url(url)}
 
 
+
+
+@app.post("/api/open/path")
+async def launch_path(req: dict):
+    """Abre una carpeta del sistema en el explorador."""
+    import subprocess, os
+    folder = req.get("path", "Desktop")
+    folder_map = {
+        "Desktop": os.path.join(os.path.expanduser("~"), "Desktop"),
+        "Downloads": os.path.join(os.path.expanduser("~"), "Downloads"),
+        "Documents": os.path.join(os.path.expanduser("~"), "Documents"),
+        "Pictures": os.path.join(os.path.expanduser("~"), "Pictures"),
+    }
+    path = folder_map.get(folder, os.path.expanduser("~"))
+    try:
+        subprocess.Popen(["explorer", path])
+        return {"message": f"Abriendo {folder}"}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 @app.get("/api/voices")
 async def voices():
     return await list_spanish_voices()

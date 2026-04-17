@@ -760,6 +760,7 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
     <div class="launch-title">⬛ LANZADOR DE APLICACIONES</div>
     <div class="atile" onclick="launchAndClose('chrome')"><div class="atico">🌐</div><div class="atiname">CHROME</div><div class="abar"></div></div>
     <div class="atile" onclick="launchAndClose('spotify')"><div class="atico">🎵</div><div class="atiname">SPOTIFY</div><div class="abar"></div></div>
+    <div class="atile" onclick="launchAndClose('obsidian')"><div class="atico">🟣</div><div class="atiname">OBSIDIAN</div><div class="abar"></div></div>
     <div class="atile" onclick="launchAndClose('discord')"><div class="atico">💬</div><div class="atiname">DISCORD</div><div class="abar"></div></div>
     <div class="atile" onclick="launchAndClose('code')"><div class="atico">💻</div><div class="atiname">VS CODE</div><div class="abar"></div></div>
     <div class="atile" onclick="launchAndClose('explorer')"><div class="atico">📁</div><div class="atiname">ARCHIVOS</div><div class="abar"></div></div>
@@ -1424,6 +1425,7 @@ const navMap={
   'sistema|cpu|ram|rendimiento|procesos|monitor':       'system',
   'vuelve|atras|cerebro|palace|inicio|brain':    'back',
   'salir|exit|escapar':                             'exit',
+  'obsidian|notas|vault|boveda':                    'obsidian',
 };
 function parseNav(text){
   const t=text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -1431,15 +1433,14 @@ function parseNav(text){
   return null;
 }
 function handleNav(cmd){
-  // FS mode voice commands
   if(fsModeActive){
     if(cmd==='back'||cmd==='atras'){fsGoBack3D();return;}
     if(cmd==='exit'||cmd==='salir'){exitFSMode();return;}
-    // Try to find folder by voice in current directory
     const found=fs3DNodes.find(n=>n.item.name.toLowerCase().includes(cmd.toLowerCase()));
     if(found){onFSNodeClick(found.item);return;}
   }
   if(cmd==='back'){flyBack();return;}
+  if(cmd==='obsidian'){launchApp('obsidian');showGBadge('🟣 OBSIDIAN');return;}
   const nd=NODES.find(n=>n.id===cmd);
   if(nd)flyToNode(nd);
 }

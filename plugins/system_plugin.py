@@ -55,6 +55,8 @@ APP_MAP = {
     "skype":            "skype",
     "snipping tool":    "SnippingTool",
     "recortes":         "SnippingTool",
+    "obsidian":         "obsidian",
+    "notas obsidian":   "obsidian",
 }
 
 

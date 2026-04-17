@@ -253,54 +253,25 @@ async def launch_path(req: dict):
 
 @app.post("/api/auth/startup")
 async def auth_startup():
-    """Secuencia completa de arranque tras autenticacion biometrica."""
     import asyncio, subprocess
-
     async def _run():
-        # 1. Abrir Spotify minimizado al fondo
         open_application("spotify")
-        await asyncio.sleep(4.5)
-
-        # 2. Dar play en Spotify
+        await asyncio.sleep(2.2)
+        ps = '=New-Object -ComObject WScript.Shell;.AppActivate(\"Spotify\")|Out-Null;Start-Sleep -m 350;.SendKeys(\" \")'
+        for _ in range(2):
+            try: subprocess.run(["powershell","-NoProfile","-c",ps],timeout=6,capture_output=True)
+            except: pass
+            await asyncio.sleep(1.8)
         try:
-            subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-c",
-                 "$wshell = New-Object -comobject wscript.shell; "
-                 "$wshell.AppActivate('Spotify') | Out-Null; "
-                 "Start-Sleep -Milliseconds 400; "
-                 "$wshell.SendKeys(' ')"],
-                timeout=8, capture_output=True
-            )
-        except Exception as e:
-            print(f"[Startup] Play Spotify error: {e}")
-
-        await asyncio.sleep(2.5)
-
-        # 3. Minimizar Spotify (enviar Win+Down dos veces)
-        try:
-            subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-c",
-                 "Add-Type -TypeDefinition '"
-                 "using System; using System.Runtime.InteropServices;"
-                 "public class Win32 {"
-                 " [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int s);"
-                 " [DllImport(\"user32.dll\")] public static extern IntPtr FindWindow(string c, string t);"
-                 "}'; "
-                 "$p = Get-Process -Name spotify -ErrorAction SilentlyContinue | "
-                 "Where-Object {$_.MainWindowTitle -ne ''} | Select-Object -First 1; "
-                 "if ($p) { [Win32]::ShowWindow($p.MainWindowHandle, 6) | Out-Null }"],
-                timeout=10, capture_output=True
-            )
-        except Exception as e:
-            print(f"[Startup] Minimize Spotify error: {e}")
-
+            subprocess.run(["powershell","-NoProfile","-c",
+                '=Get-Process spotify -EA 0|?{.MainWindowTitle}|Select -First 1;if(){(New-Object -ComObject Shell.Application).MinimizeAll()}'],
+                timeout=8,capture_output=True)
+        except: pass
         await asyncio.sleep(0.5)
-
-        # 4. Abrir VS Code (en monitor disponible)
         open_application("code")
-
+        print("[Startup] OK")
     asyncio.create_task(_run())
-    return {"message": "Startup sequence iniciado"}
+    return {"message":"OK"}
 @app.get("/api/voices")
 async def voices():
     return await list_spanish_voices()

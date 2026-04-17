@@ -719,12 +719,12 @@ let cameraStream=null,cameraActive=false,faceApiReady=false;
 let faceDetectionInterval=null,consecutiveMatches=0;
 let isListening=false,isSpeaking=false,speakEnabled=true,continuousMode=false,isProcessing=false;
 let handsEnabled=false,handsMPReady=false,airMouseWS=null,airMouseEnabled=false;
-let smoothX=0,smoothY=0,prevPinch=false,isScrolling=false,lastScrollY=0,lastSentX=0,lastSentY=0;
+let smoothX=0,smoothY=0,prevPinch=false,prevPinch2=false,isScrolling=false,lastScrollY=0,lastSentX=0,lastSentY=0;
 let lastGestureTime=0;
 const GCD=2000,HOLD_LAUNCHER=22,HOLD_ACTION=4,DEAD_ZONE=0.006;
 let openHandFrames=0,fistFrames=0,callFrames=0,vSignFrames=0;
 let launcherHoldBar=null,launcherOpen=false,launcherHoverTile=null,launcherHoverTimer=null;
-let recognition=null,currentAudio=null;
+let recognition=null,currentAudio=null,systemStarted=false;
 window.handGravity={x:.5,y:.5,active:false};
 window.jSpeaking=false;
 
@@ -1056,7 +1056,7 @@ function onIdentityVerified(name){
   document.getElementById('scanner-wrap').appendChild(burst);setTimeout(()=>burst.remove(),1000);
   setAuthStatus(`BIENVENIDO, ${name.toUpperCase()} ✓`,'Todos los sistemas en línea — activando Mind Palace...',100,'var(--g)');
   speak(`Identidad verificada. Bienvenido de nuevo, ${name}. Iniciando Mind Palace.`);
-  setTimeout(()=>fetch('/api/auth/startup',{method:'POST'}),900);
+  if(!systemStarted){systemStarted=true;setTimeout(()=>fetch('/api/auth/startup',{method:'POST'}),900);}
   setTimeout(()=>{document.getElementById('sys-toast').classList.add('show');},1500);
   setTimeout(()=>{document.getElementById('sys-toast').classList.remove('show');},6000);
   setTimeout(()=>activateMainUI(name),2500);
@@ -1314,7 +1314,7 @@ function initMediaPipeHands(){
   if(handsMPReady)return;
   try{
     const h=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-    h.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:.7,minTrackingConfidence:.6});
+    h.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:.7,minTrackingConfidence:.6});
     h.onResults(onHandResults);window._handsMP=h;handsMPReady=true;
   }catch(e){console.warn('MediaPipe:',e);}
 }
@@ -1336,13 +1336,16 @@ function onHandResults(results){
   const cv=document.getElementById('cam-video');
   const sw=cv.videoWidth||140,sh=cv.videoHeight||105;
   hc.width=sw;hc.height=sh;ctx.clearRect(0,0,sw,sh);
-  if(!results.multiHandLandmarks?.[0]){
+  const allHands=results.multiHandLandmarks||[];
+  if(!allHands.length){
     document.getElementById('hand-cursor').style.display='none';
     window.handGravity.active=false;
     openHandFrames=0;fistFrames=0;callFrames=0;vSignFrames=0;
     removeLHBar();return;
   }
-  const lm=results.multiHandLandmarks[0];
+  // Hand 0 = mouse principal | Hand 1 o cualquiera = gestos
+  const lm=allHands[0];
+  const lm2=allHands[1]||null;  // segunda mano (solo gestos)
   // Draw skeleton
   const conn=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
   ctx.strokeStyle='rgba(255,170,0,.7)';ctx.lineWidth=1;ctx.shadowColor='#ffaa00';ctx.shadowBlur=4;
@@ -1389,6 +1392,20 @@ function onHandResults(results){
   if(callHand)callFrames++;else callFrames=0;
   if(callHand&&callFrames===HOLD_ACTION){const now=Date.now();if(now-lastGestureTime>GCD){lastGestureTime=now;toggleVoice();showGBadge('🎤 MIC');}}
   prevPinch=pinching;
+  // ── SEGUNDA MANO: gestos adicionales ──
+  if(lm2){
+    const tv=[4,8,12,16,20],tp=[3,6,10,14,18];
+    const fg2=tv.map((t,i)=>i===0?(lm2[t].x<lm2[tp[i]].x):(lm2[t].y<lm2[tp[i]].y));
+    const [th2,ix2,mi2,ri2,pi2]=fg2;const ec2=fg2.filter(Boolean).length;
+    // Pinch mano 2 = siguiente canción
+    const pinchD2=Math.hypot(lm2[4].x-lm2[8].x,lm2[4].y-lm2[8].y);
+    if(pinchD2<0.048&&!prevPinch2){const now=Date.now();if(now-lastGestureTime>GCD){lastGestureTime=now;sendMedia('next');showGBadge('⏭ SIGUIENTE');}}
+    prevPinch2=(pinchD2<0.048);
+    // Fist mano 2 = volumen
+    if(ec2===0&&!th2){const now=Date.now();if(now-lastGestureTime>GCD){lastGestureTime=now;sendVolume('up');showGBadge('🔊 VOL+');}}
+    // V-sign mano 2 = volver al cerebro
+    if(!th2&&ix2&&mi2&&!ri2&&!pi2){const now=Date.now();if(now-lastGestureTime>2500){lastGestureTime=now;if(activeNode)flyBack();}}
+  }
 }
 function updateLHBar(pct){
   if(!launcherHoldBar){launcherHoldBar=document.createElement('div');launcherHoldBar.style.cssText='position:fixed;bottom:60px;left:50%;transform:translateX(-50%);width:200px;height:3px;background:rgba(0,212,255,.08);border-radius:3px;z-index:300;overflow:hidden;';const f=document.createElement('div');f.id='lhb-f';f.style.cssText='height:100%;background:linear-gradient(90deg,var(--c2),var(--c));border-radius:3px;width:0%;';launcherHoldBar.appendChild(f);document.body.appendChild(launcherHoldBar);}

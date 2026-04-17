@@ -789,6 +789,14 @@ let recognition=null,currentAudio=null,systemStarted=false;
 window.handGravity={x:.5,y:.5,active:false};
 window.jSpeaking=false;
 
+// ── FS3D State (declared here so flyBack/flyToNode can see them) ──
+var fsModeActive=false;
+var fs3DNodes=[];
+var fs3DCores=[];
+var fsPath3D='~';
+var fsHistory3D=[];
+var _fsAnimStart=0;
+
 // ══════════════════════════════════════════════════════
 // THREE.JS — MIND PALACE
 // ══════════════════════════════════════════════════════
@@ -942,7 +950,9 @@ c3.addEventListener('mousemove',e=>{
 });
 c3.addEventListener('wheel',e=>{sph.r=Math.max(5,Math.min(20,sph.r+e.deltaY*.01));updateCam();},{passive:true});
 c3.addEventListener('click',e=>{
-  if(isDragging||activeNode)return;
+  if(isDragging)return;
+  if(fsModeActive){fsRaycast(e);return;}
+  if(activeNode)return;
   const rect=c3.getBoundingClientRect();
   const ray=new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
@@ -958,18 +968,14 @@ function flyToNode(nd){
   closeAllPanels();
   document.getElementById('btn-back').style.display='flex';
   if(nd.id==='memory')loadMemory();
-    if(nd.id==='files'){
-      setTimeout(()=>enterFSMode3D('~'),200);
-      document.getElementById('btn-back').style.display='flex';
-      document.getElementById('brain-hint').classList.add('hidden');
-      return;
-    }
+    if(nd.id==='files'){enterFSMode3D('~');return;}
 
   if(nd.id==='system')refreshSysPanel();
   const endPos=nd.pos.clone().add(new THREE.Vector3(0,0,3.5));
   flyAnim={sp:cam.position.clone(),ep:endPos,sl:new THREE.Vector3(0,0,0),el:nd.pos.clone(),t:0,dur:80,onEnd:()=>openNodePanel(nd)};
 }
 function flyBack(){
+  if(fsModeActive){exitFSMode();return;}
   if(flyAnim)return;
   closeAllPanels();
   document.getElementById('btn-back').style.display='none';
@@ -1384,7 +1390,7 @@ async function sendMessage(){
   try{
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,is_voice:false,speak_response:speakEnabled})});
     const d=await r.json();
-    hideTyping();addMsg(d.response,'jarvis');
+    hideTyping();addMsg(d.response,'jarvis');chatActivity();
     if(d.audio_url)playAudio(d.audio_url);else if(speakEnabled)speak(d.response);
   }catch(e){hideTyping();addMsg('⚠️ Error de conexión con el servidor de JARVIS.','jarvis');}
   finally{isProcessing=false;}
@@ -1407,7 +1413,8 @@ const navMap={
   'memoria|recuerd|historial|pasado':                  'memory',
   'archivos|carpeta|documentos|ficheros|files':         'files',
   'sistema|cpu|ram|rendimiento|procesos|monitor':       'system',
-  'vuelve|atras|cerebro|palace|salir|inicio|brain':    'back',
+  'vuelve|atras|cerebro|palace|inicio|brain':    'back',
+  'salir|exit|escapar':                             'exit',
 };
 function parseNav(text){
   const t=text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -1415,6 +1422,14 @@ function parseNav(text){
   return null;
 }
 function handleNav(cmd){
+  // FS mode voice commands
+  if(fsModeActive){
+    if(cmd==='back'||cmd==='atras'){fsGoBack3D();return;}
+    if(cmd==='exit'||cmd==='salir'){exitFSMode();return;}
+    // Try to find folder by voice in current directory
+    const found=fs3DNodes.find(n=>n.item.name.toLowerCase().includes(cmd.toLowerCase()));
+    if(found){onFSNodeClick(found.item);return;}
+  }
   if(cmd==='back'){flyBack();return;}
   const nd=NODES.find(n=>n.id===cmd);
   if(nd)flyToNode(nd);
@@ -1847,266 +1862,299 @@ function chatActivity() {
 // End Chat Visibility Control
 
 
-// ══════════════════════════════════════════════════════
-// 3D FILE SYSTEM CELLS — Floating nodes in brain space
-// ══════════════════════════════════════════════════════
-let fsModeActive = false;
-let fs3DNodes = [];       // {mesh, particles, label, item}
-let fs3DHovered = null;
-let fsPath3D = '~';
-let fsHistory3D = [];
-const FS_CENTER = new window.THREE.Vector3(0, 0, 0);
 
-const FS_NODE_COLORS = {
-  dir:    0xffd700,
-  code:   0x00ff88,
-  img:    0x9955ff,
-  audio:  0x00d4ff,
-  video:  0xffb300,
-  archive:0xff9955,
-  exec:   0xff3355,
-  doc:    0x88aaff,
-  default:0x446688,
+// ══════════════════════════════════════════════════════
+// 3D FILE SYSTEM — Células idénticas a los nodos del cerebro
+// Rutas infinitas, capas, voz, raycast, anillos, glow
+// ══════════════════════════════════════════════════════
+
+// Color por tipo
+const FS_COL = {
+  dir:0xffd700, code:0x00ff88, img:0x9955ff,  audio:0x00d4ff,
+  video:0xffb300, archive:0xff9955, exec:0xff3355, doc:0x88aaff, def:0x5588aa,
 };
-
-function fsGetColor3D(item) {
-  if (item.is_dir) return FS_NODE_COLORS.dir;
-  const ext = '.' + item.name.split('.').pop().toLowerCase();
-  if (['.js','.ts','.py','.html','.css','.json','.sh','.bat'].includes(ext)) return FS_NODE_COLORS.code;
-  if (['.jpg','.jpeg','.png','.gif','.svg','.webp'].includes(ext)) return FS_NODE_COLORS.img;
-  if (['.mp3','.wav','.flac','.aac','.ogg'].includes(ext)) return FS_NODE_COLORS.audio;
-  if (['.mp4','.mkv','.avi','.mov','.wmv'].includes(ext)) return FS_NODE_COLORS.video;
-  if (['.zip','.rar','.7z','.tar','.gz'].includes(ext)) return FS_NODE_COLORS.archive;
-  if (['.exe','.msi','.dll'].includes(ext)) return FS_NODE_COLORS.exec;
-  if (['.txt','.md','.pdf','.doc','.docx','.xls','.xlsx'].includes(ext)) return FS_NODE_COLORS.doc;
-  return FS_NODE_COLORS.default;
+function _fsCol(item){
+  if(item.is_dir) return FS_COL.dir;
+  const e='.'+item.name.split('.').pop().toLowerCase();
+  if(['.js','.ts','.py','.html','.css','.json','.sh','.bat','.vue','.jsx','.tsx','.go','.rs','.java'].includes(e)) return FS_COL.code;
+  if(['.jpg','.jpeg','.png','.gif','.svg','.webp','.bmp','.ico'].includes(e)) return FS_COL.img;
+  if(['.mp3','.wav','.flac','.aac','.ogg','.m4a'].includes(e)) return FS_COL.audio;
+  if(['.mp4','.mkv','.avi','.mov','.wmv','.webm'].includes(e)) return FS_COL.video;
+  if(['.zip','.rar','.7z','.tar','.gz','.bz2'].includes(e)) return FS_COL.archive;
+  if(['.exe','.msi','.dll','.bat'].includes(e)) return FS_COL.exec;
+  if(['.txt','.md','.pdf','.doc','.docx','.xls','.xlsx','.ppt'].includes(e)) return FS_COL.doc;
+  return FS_COL.def;
+}
+const _FS_ICONS={'.py':'🐍','.js':'⚡','.ts':'⚡','.html':'🌐','.css':'🎨','.json':'📋',
+  '.jpg':'🖼️','.png':'🖼️','.mp3':'🎵','.mp4':'🎬',
+  '.zip':'📦','.exe':'⚙️','.pdf':'📕','.txt':'📝','.md':'📝',
+  '.go':'🐹','.rs':'🦀','.java':'☕','.sh':'⚡','.bat':'⚡'};
+function _fsIcon(item){
+  if(item.is_dir)return '📁';
+  return _FS_ICONS['.'+item.name.split('.').pop().toLowerCase()]||'📄';
 }
 
-function fsGetIcon3D(item) {
-  if (item.is_dir) return '📁';
-  const ext = '.' + item.name.split('.').pop().toLowerCase();
-  const m = {'.py':'🐍','.js':'⚡','.html':'🌐','.css':'🎨','.json':'📋',
-    '.jpg':'🖼️','.png':'🖼️','.mp3':'🎵','.mp4':'🎬',
-    '.zip':'📦','.exe':'⚙️','.pdf':'📕','.txt':'📝','.md':'📝'};
-  return m[ext] || '📄';
-}
+// Carga y construye las células 3D para un directorio
+async function enterFSMode3D(path, pushHistory){
+  if(!path||path==='undefined') path='~';
+  if(pushHistory===undefined) pushHistory=true;
 
-async function enterFSMode3D(path, pushHistory) {
-  if (pushHistory === undefined) pushHistory = true;
-
-  // Show HUD
+  // Mostrar HUD + botón volver
   document.getElementById('fs-hud').classList.add('active');
+  document.getElementById('btn-back').style.display='flex';
+  document.getElementById('brain-hint').classList.add('hidden');
 
-  // Load dir contents
+  // Llamada al servidor
   let data;
-  try {
-    const r = await fetch('/api/files/list?path=' + encodeURIComponent(path));
-    data = await r.json();
-    if (data.error) { showNotif('ERROR', data.error, 'var(--r)'); return; }
-  } catch(e) { showNotif('ERROR', '' + e, 'var(--r)'); return; }
+  try{
+    const r=await fetch('/api/files/list?path='+encodeURIComponent(path));
+    data=await r.json();
+    if(data.error){showNotif('ERROR',data.error,'var(--r)');return;}
+  }catch(e){showNotif('ERROR',''+e,'var(--r)');return;}
 
-  if (pushHistory && fsPath3D !== data.path) fsHistory3D.push(fsPath3D);
-  fsPath3D = data.path;
+  if(pushHistory && fsPath3D!==data.path) fsHistory3D.push(fsPath3D);
+  fsPath3D=data.path;
+  fsModeActive=true;
+  _fsAnimStart=0; // reset animation timer
 
-  // Update HUD
-  const shortPath = data.path.replace(/.*[\/\\]/, '') || data.path;
-  document.getElementById('fs-hud-path').textContent = data.path;
-  document.getElementById('fs-hud-count').textContent =
-    data.items.filter(i => i.is_dir).length + '📁 ' +
-    data.items.filter(i => !i.is_dir).length + '📄';
-  document.getElementById('fs-hud-back').style.opacity = fsHistory3D.length ? '1' : '0.3';
+  // Actualizar HUD
+  document.getElementById('fs-hud-path').textContent=data.path;
+  const ndirs=data.items.filter(i=>i.is_dir).length;
+  const nfiles=data.items.filter(i=>!i.is_dir).length;
+  document.getElementById('fs-hud-count').textContent=ndirs+'📁 '+nfiles+'📄';
+  document.getElementById('fs-hud-back').style.opacity=fsHistory3D.length?'1':'0.3';
 
-  fsModeActive = true;
-
-  // Clear existing FS nodes
+  // Limpiar capa anterior
   clearFS3DNodes();
 
-  // Dim main brain nodes
-  NODES.forEach(n => {
-    if (n.pts && n.pts.material) { n.pts.material.opacity = 0.08; }
+  // Atenuar nodos principales y ocultar sus labels
+  NODES.forEach(n=>{
+    if(n.pts&&n.pts.material) n.pts.material.opacity=0.05;
+    if(n.ring&&n.ring.material) n.ring.material.opacity=0;
+    if(n.light) n.light.intensity=0;
+    if(n.labelEl) n.labelEl.style.display='none';
   });
 
-  // Build new 3D cells
-  const items = data.items.slice(0, 24); // max 24 cells on screen
-  const total = items.length;
+  // Máx 22 elementos por capa
+  const items=data.items.slice(0,22);
+  const total=items.length||1;
 
-  items.forEach((item, i) => {
-    const col = fsGetColor3D(item);
-    const isDir = item.is_dir;
+  items.forEach((item,i)=>{
+    const col=_fsCol(item);
+    const isDir=item.is_dir;
+    const colHex='#'+col.toString(16).padStart(6,'0');
 
-    // Fibonacci sphere distribution
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-    const y = 1 - (i / (total - 1 || 1)) * 2;
-    const radius = Math.sqrt(1 - y * y);
-    const theta = goldenAngle * i;
-    const r = isDir ? 4.5 : 3.5;
-
-    const pos = new window.THREE.Vector3(
-      Math.cos(theta) * radius * r,
-      y * r * 0.9,
-      Math.sin(theta) * radius * r
+    // Fibonacci sphere position
+    const ga=Math.PI*(3-Math.sqrt(5));
+    const yy=1-(i/(total-1||1))*2;
+    const rr=Math.sqrt(Math.max(0,1-yy*yy));
+    const th=ga*i;
+    const R=isDir?5.2:3.8;
+    const pos=new THREE.Vector3(
+      Math.cos(th)*rr*R,
+      yy*R*0.85,
+      Math.sin(th)*rr*R
     );
 
-    // Particle cloud (like main nodes)
-    const pCount = isDir ? 200 : 80;
-    const pSize  = isDir ? 0.07 : 0.04;
-    const spread = isDir ? 0.55 : 0.35;
-
-    const geo = new window.THREE.BufferGeometry();
-    const pos3 = new Float32Array(pCount * 3);
-    const col3 = new Float32Array(pCount * 3);
-    const r3 = (col >> 16 & 0xff) / 255;
-    const g3 = (col >> 8  & 0xff) / 255;
-    const b3 = (col & 0xff) / 255;
-    for (let j = 0; j < pCount; j++) {
-      const a = Math.random() * Math.PI * 2;
-      const b = Math.random() * Math.PI;
-      const rr = spread * (0.3 + Math.cbrt(Math.random()));
-      pos3[j*3]   = pos.x + rr * Math.sin(b) * Math.cos(a);
-      pos3[j*3+1] = pos.y + rr * Math.sin(b) * Math.sin(a);
-      pos3[j*3+2] = pos.z + rr * Math.cos(b);
-      col3[j*3]   = r3; col3[j*3+1] = g3; col3[j*3+2] = b3;
+    // ── Particle cluster (idéntico a nodos principales) ──
+    const N=isDir?500:200;
+    const pArr=new Float32Array(N*3);
+    const spread=isDir?0.85:0.5;
+    for(let j=0;j<N;j++){
+      const rj=0.3+Math.random()*spread;
+      const ta=Math.random()*Math.PI*2;
+      const pa=Math.acos(1-2*Math.random());
+      pArr[j*3]  =pos.x+rj*Math.sin(pa)*Math.cos(ta);
+      pArr[j*3+1]=pos.y+rj*Math.sin(pa)*Math.sin(ta);
+      pArr[j*3+2]=pos.z+rj*Math.cos(pa);
     }
-    geo.setAttribute('position', new window.THREE.BufferAttribute(pos3, 3));
-    geo.setAttribute('color',    new window.THREE.BufferAttribute(col3, 3));
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.BufferAttribute(pArr,3));
+    const pts=new THREE.Points(geo,new THREE.PointsMaterial({
+      color:col, size:isDir?0.058:0.04,
+      transparent:true, opacity:0,
+      blending:THREE.AdditiveBlending, depthWrite:false,
+    }));
+    scene.add(pts);
 
-    const mat = new window.THREE.PointsMaterial({
-      size: pSize, vertexColors: true, transparent: true, opacity: 0,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-    });
-    const cloud = new window.THREE.Points(geo, mat);
-    window._scene && window._scene.add(cloud);
-
-    // Core sphere
-    const coreGeo = new window.THREE.SphereGeometry(isDir ? 0.18 : 0.10, 16, 16);
-    const coreMat = new window.THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0 });
-    const core = new window.THREE.Mesh(coreGeo, coreMat);
+    // ── Core sphere (clickable via raycast) ──
+    const core=new THREE.Mesh(
+      new THREE.SphereGeometry(isDir?0.30:0.18,20,20),
+      new THREE.MeshPhongMaterial({
+        color:col, emissive:col, emissiveIntensity:0.5,
+        transparent:true, opacity:0,
+      })
+    );
     core.position.copy(pos);
-    window._scene && window._scene.add(core);
+    core.userData.fsItem=item;
+    scene.add(core);
+    fs3DCores.push(core);
 
-    // HTML label
-    const lbl = document.createElement('div');
-    lbl.className = 'nlabel';
-    lbl.style.borderColor = '#' + col.toString(16).padStart(6, '0') + '66';
-    lbl.style.color = '#' + col.toString(16).padStart(6, '0');
-    lbl.style.background = 'rgba(2,8,16,.85)';
-    lbl.style.fontSize = '7px';
-    lbl.style.letterSpacing = '1px';
-    lbl.style.padding = '3px 10px';
-    lbl.innerHTML = fsGetIcon3D(item) + ' ' + item.name.substring(0, 18);
-    lbl.onclick = () => onFSNodeClick(item);
+    // ── Ring (idéntico a nodos principales) ──
+    const ring=new THREE.Mesh(
+      new THREE.RingGeometry(isDir?0.35:0.22,isDir?0.42:0.27,32),
+      new THREE.MeshBasicMaterial({
+        color:col, transparent:true, opacity:0,
+        side:THREE.DoubleSide, blending:THREE.AdditiveBlending,
+      })
+    );
+    ring.position.copy(pos);
+    scene.add(ring);
+
+    // ── Point light ──
+    const light=new THREE.PointLight(col,0,8);
+    light.position.copy(pos);
+    scene.add(light);
+
+    // ── HTML label (idéntico a nodos principales) ──
+    const lbl=document.createElement('div');
+    lbl.className='nlabel';
+    lbl.style.color=colHex;
+    lbl.style.borderColor=colHex+'44';
+    lbl.style.background='rgba(2,8,16,.88)';
+    lbl.style.opacity='0';
+    lbl.innerHTML='<span class="nlabel-icon">'+_fsIcon(item)+'</span>'+item.name.substring(0,16);
+    lbl.onclick=()=>onFSNodeClick(item);
     document.getElementById('node-labels').appendChild(lbl);
 
-    const nodeObj = { cloud, core, label: lbl, item, pos, col };
+    const nodeObj={pts,core,ring,light,label:lbl,item,pos};
     fs3DNodes.push(nodeObj);
 
-    // Animate in
-    let t = 0;
-    const delay = i * 35;
-    setTimeout(() => {
-      const anim = () => {
-        t = Math.min(t + 0.04, 1);
-        const ease = 1 - Math.pow(1 - t, 3);
-        mat.opacity = ease * 0.9;
-        coreMat.opacity = ease * 0.85;
-        lbl.style.opacity = ease;
-        if (!lbl.classList.contains('vis')) lbl.classList.add('vis');
-        if (t < 1) requestAnimationFrame(anim);
-      };
-      requestAnimationFrame(anim);
-    }, delay);
+    // Animation handled by updateFS3DLabels() in render loop
   });
 
-  // Camera: move to overview position for FS
-  tweenToSph(0.6, 0.95, 13, 800);
-
-  showGBadge('📁 ' + (shortPath || 'RAÍZ'));
+  tweenToSph(0.55,0.95,14,900);
+  showGBadge('📁 '+(data.name||'DIRECTORIO'));
 }
 
-function onFSNodeClick(item) {
-  if (item.is_dir) {
-    enterFSMode3D(item.path);
-  } else {
-    // Open file via API
-    fetch('/api/files/open', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: item.path})
-    }).then(r => r.json()).then(d => {
-      showGBadge('📂 ' + item.name);
-    }).catch(e => showNotif('ERROR', '' + e, 'var(--r)'));
+// Click en una célula
+function onFSNodeClick(item){
+  if(item.is_dir){
+    enterFSMode3D(item.path,true);
+  }else{
+    fetch('/api/files/open',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({path:item.path})
+    }).then(r=>r.json()).then(()=>showGBadge('📂 '+item.name))
+      .catch(e=>showNotif('ERROR',''+e,'var(--r)'));
   }
 }
 
-function fsGoBack3D() {
-  if (!fsHistory3D.length) return;
-  const prev = fsHistory3D.pop();
-  enterFSMode3D(prev, false);
+// Volver una capa atrás
+function fsGoBack3D(){
+  if(!fsHistory3D.length) return;
+  const prev=fsHistory3D.pop();
+  enterFSMode3D(prev,false);
 }
 
-function clearFS3DNodes() {
-  fs3DNodes.forEach(n => {
-    window._scene && window._scene.remove(n.cloud);
-    window._scene && window._scene.remove(n.core);
-    n.cloud.geometry.dispose();
-    n.cloud.material.dispose();
-    n.core.geometry.dispose();
-    n.core.material.dispose();
+// Limpieza total de células FS
+function clearFS3DNodes(){
+  fs3DNodes.forEach(n=>{
+    scene.remove(n.pts);scene.remove(n.core);scene.remove(n.ring);scene.remove(n.light);
+    n.pts.geometry.dispose();n.pts.material.dispose();
+    n.core.geometry.dispose();n.core.material.dispose();
+    n.ring.geometry.dispose();n.ring.material.dispose();
     n.label.remove();
   });
-  fs3DNodes = [];
+  fs3DNodes=[];fs3DCores=[];
 }
 
-function exitFSMode() {
-  fsModeActive = false;
+// Salir del modo FS completamente
+function exitFSMode(){
+  fsModeActive=false;
   clearFS3DNodes();
-  fsHistory3D = [];
+  fsHistory3D=[];
   document.getElementById('fs-hud').classList.remove('active');
   document.getElementById('btn-back').style.display='none';
-  document.getElementById('brain-hint').classList.remove('hidden');
-  // Restore main node opacity
-  NODES.forEach(n => {
-    if (n.pts && n.pts.material) n.pts.material.opacity = 0.9;
+  // Restaurar nodos principales
+  NODES.forEach(n=>{
+    if(n.pts&&n.pts.material) n.pts.material.opacity=0.75;
+    if(n.ring&&n.ring.material) n.ring.material.opacity=0.12;
+    if(n.labelEl){n.labelEl.style.display='';}
   });
-  // Reset navigation state
-  activeNode = null;
-  autoRotate = true;
+  activeNode=null; autoRotate=true;
   closeAllPanels();
+  setTimeout(()=>document.getElementById('brain-hint').classList.remove('hidden'),800);
   showGBadge('⬡ CEREBRO');
 }
 
-// Helper: smooth camera tween to spherical coords
-function tweenToSph(theta, phi, r, ms) {
-  const sphRef=window._sph||sph||{};
-  const start = {theta: sphRef.theta||0.6, phi: sphRef.phi||0.95, r: sphRef.r||13};
-  const end = {theta, phi, r};
-  const t0 = performance.now();
-  function step(now) {
-    const t = Math.min((now - t0) / (ms || 600), 1);
-    const e = 1 - Math.pow(1 - t, 3);
-    const s=window._sph||{};
-    s.theta=start.theta+(end.theta-start.theta)*e;
-    s.phi=start.phi+(end.phi-start.phi)*e;
-    s.r=start.r+(end.r-start.r)*e;
-    if (t < 1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
-}
 
-// FS node label update in render loop (like main nodes)
-function updateFS3DLabels() {
-  if (!fs3DNodes.length) return;
-  fs3DNodes.forEach(n => {
-    if(!window._cam)return;
-  const v = n.pos.clone().project(window._cam);
-    const x = (v.x * 0.5 + 0.5) * window.innerWidth;
-    const y = (-v.y * 0.5 + 0.5) * window.innerHeight;
-    n.label.style.left = x + 'px';
-    n.label.style.top  = y + 'px';
-    n.label.style.opacity = v.z < 1 ? '1' : '0';
+// Proyección y animación de cells FS en el render loop
+function updateFS3DLabels(){
+  if(!fs3DNodes.length) return;
+  const now=performance.now();
+  if(!_fsAnimStart) _fsAnimStart=now;
+  const elapsed=(now-_fsAnimStart)*0.001; // seconds since FS loaded
+  const t=now*0.001;
+
+  fs3DNodes.forEach((n,i)=>{
+    // Fade-in animation driven by render loop (not RAF)
+    const delay=i*0.04;  // 40ms stagger
+    const progress=Math.min(Math.max((elapsed-delay)/0.6,0),1);
+    const ease=1-Math.pow(1-progress,3);
+    const isDir=n.item.is_dir;
+
+    if(progress<1){
+      n.pts.material.opacity=ease*(isDir?0.75:0.55);
+      n.core.material.opacity=ease*0.8;
+      n.ring.material.opacity=ease*0.25;
+      n.light.intensity=ease*(isDir?1.2:0.6);
+      n.label.style.opacity=String(ease);
+    }
+
+    // Pulse after fully visible
+    if(progress>=1){
+      const pulse=0.5+0.5*Math.sin(t*1.8+i*1.1);
+      n.pts.material.size=isDir?(0.055+pulse*0.01):(0.038+pulse*0.007);
+      n.ring.rotation.z+=isDir?0.012:0.007;
+      n.pts.material.opacity=isDir?(0.65+pulse*0.1):(0.45+pulse*0.1);
+    }
+
+    // Project label to screen
+    const v=n.pos.clone().project(cam);
+    const x=(v.x*0.5+0.5)*window.innerWidth;
+    const y=(-v.y*0.5+0.5)*window.innerHeight;
+    n.label.style.left=x+'px';
+    n.label.style.top=y+'px';
+    n.label.style.display=(v.z<1)?'':'none';
+    if(!n.label.classList.contains('vis'))n.label.classList.add('vis');
   });
 }
+
+// Raycast en canvas para celdas FS
+function fsRaycast(e){
+  if(!fsModeActive||!fs3DCores.length) return false;
+  const rect=document.getElementById('brain-canvas').getBoundingClientRect();
+  const ray=new THREE.Raycaster();
+  ray.setFromCamera(
+    new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),
+    cam
+  );
+  const hits=ray.intersectObjects(fs3DCores);
+  if(hits.length>0){
+    onFSNodeClick(hits[0].object.userData.fsItem);
+    return true;
+  }
+  return false;
+}
+
+// Camera tween
+function tweenToSph(theta,phi,r,ms){
+  const start={theta:sph.theta,phi:sph.phi,r:sph.r};
+  const end={theta,phi,r};
+  const t0=performance.now();
+  (function step(now){
+    const t=Math.min((now-t0)/(ms||600),1);
+    const e=1-Math.pow(1-t,3);
+    sph.theta=start.theta+(end.theta-start.theta)*e;
+    sph.phi  =start.phi  +(end.phi  -start.phi  )*e;
+    sph.r    =start.r    +(end.r    -start.r    )*e;
+    updateCam();
+    if(t<1)requestAnimationFrame(step);
+  })(t0);
+}
 // END 3D FILE SYSTEM CELLS
+
 
 startAuth();
 setInterval(updateSysStats,7000);

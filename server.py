@@ -2,6 +2,7 @@
 import os
 import sys
 import asyncio
+import json
 
 # UTF-8 para emojis en Windows
 if hasattr(sys.stdout, "reconfigure"):
@@ -10,7 +11,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -18,7 +19,10 @@ from pydantic import BaseModel
 from config import PORT, HOST, AUDIO_CACHE_DIR
 from brain import JarvisBrain
 from tts_engine import text_to_speech, list_spanish_voices, clean_cache
-from plugins.system_plugin import get_system_info, get_datetime_info, open_application, open_url
+from plugins.system_plugin import (
+    get_system_info, get_datetime_info, open_application, open_url,
+    control_volume, control_media
+)
 from plugins.productivity_plugin import (
     add_task, list_tasks, complete_task, delete_task,
     add_note, list_notes, search_notes,
@@ -30,9 +34,9 @@ jarvis = JarvisBrain()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("\n" + "=" * 55)
-    print("  J.A.R.V.I.S. v4.0 ULTRA — Online")
+    print("  J.A.R.V.I.S. v4.0 ULTRA -- Online")
     print(f"  http://localhost:{PORT}")
-    print("  Tool Calling: ON | TTS: OpenAI onyx | Face ID: ON")
+    print("  Tool Calling: ON | Air Mouse: ON | Face ID: ON")
     print("=" * 55 + "\n")
     yield
     print("\nJARVIS desconectado. Hasta pronto, senor.\n")
@@ -44,7 +48,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/audio", StaticFiles(directory=AUDIO_CACHE_DIR), name="audio")
 
 
-# ── Modelos ───────────────────────────────────────────────────────────
+# -- Modelos ---
 class ChatMessage(BaseModel):
     message: str
     is_voice: bool = False
@@ -63,8 +67,14 @@ class NoteRequest(BaseModel):
     title: str
     content: str
 
+class MouseAction(BaseModel):
+    action: str
+    x: float | None = None
+    y: float | None = None
+    amount: int = 0
 
-# ── Rutas principales ─────────────────────────────────────────────────
+
+# -- Rutas principales ---
 @app.get("/", response_class=HTMLResponse)
 async def home():
     with open(os.path.join("static", "index.html"), "r", encoding="utf-8") as f:
@@ -75,7 +85,6 @@ async def home():
 async def chat(msg: ChatMessage):
     response_text = await jarvis.think(msg.message, is_voice=msg.is_voice)
     result = {"response": response_text, "audio_url": None}
-
     if msg.speak_response:
         try:
             audio_path = await text_to_speech(response_text, msg.voice)
@@ -83,23 +92,18 @@ async def chat(msg: ChatMessage):
             result["audio_url"] = f"/audio/{filename}"
         except Exception as e:
             result["tts_error"] = str(e)
-
     clean_cache()
     return JSONResponse(result)
 
 
 @app.post("/api/tts")
 async def tts_direct(req: TTSRequest):
-    """TTS directo — devuelve audio/mpeg para el cliente."""
     try:
         audio_path = await text_to_speech(req.text, req.voice)
         with open(audio_path, "rb") as f:
             audio_data = f.read()
-        return Response(
-            content=audio_data,
-            media_type="audio/mpeg",
-            headers={"Cache-Control": "no-cache"},
-        )
+        return Response(content=audio_data, media_type="audio/mpeg",
+                        headers={"Cache-Control": "no-cache"})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -124,6 +128,74 @@ async def datetime_info():
     return get_datetime_info()
 
 
+# -- Control de sistema directo (para gestos) ---
+@app.post("/api/system/volume")
+async def sys_volume(req: dict):
+    return control_volume(req.get("action", "get"), req.get("level"))
+
+@app.post("/api/system/media")
+async def sys_media(req: dict):
+    return control_media(req.get("action", "play_pause"))
+
+@app.post("/api/system/mouse")
+async def sys_mouse(req: MouseAction):
+    try:
+        import pyautogui
+        pyautogui.FAILSAFE = False
+        if req.action == "move" and req.x is not None and req.y is not None:
+            pyautogui.moveTo(int(req.x), int(req.y), duration=0)
+        elif req.action == "click":
+            pyautogui.click()
+        elif req.action == "right_click":
+            pyautogui.rightClick()
+        elif req.action == "double_click":
+            pyautogui.doubleClick()
+        elif req.action == "scroll":
+            pyautogui.scroll(req.amount)
+        return {"status": "ok"}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# -- WebSocket: Air Mouse en tiempo real ---
+@app.websocket("/ws/hands")
+async def websocket_hands(ws: WebSocket):
+    await ws.accept()
+    try:
+        import pyautogui
+        pyautogui.FAILSAFE = False
+        print("  [Air Mouse] WebSocket conectado")
+        while True:
+            raw = await ws.receive_text()
+            data = json.loads(raw)
+            action = data.get("action")
+            x = data.get("x")
+            y = data.get("y")
+            try:
+                if action == "move" and x is not None and y is not None:
+                    pyautogui.moveTo(int(x), int(y), duration=0)
+                elif action == "click":
+                    pyautogui.click()
+                elif action == "right_click":
+                    pyautogui.rightClick()
+                elif action == "double_click":
+                    pyautogui.doubleClick()
+                elif action == "scroll_up":
+                    pyautogui.scroll(3)
+                elif action == "scroll_down":
+                    pyautogui.scroll(-3)
+                elif action == "open_app":
+                    open_application(data.get("app", ""))
+            except Exception:
+                pass
+            await ws.send_text('{"ok":1}')
+    except WebSocketDisconnect:
+        print("  [Air Mouse] WebSocket desconectado")
+    except Exception as e:
+        print(f"  [Air Mouse] Error: {e}")
+
+
+# -- Apps / URLs ---
 @app.post("/api/open/app")
 async def launch_app(req: dict):
     app_name = req.get("app", "")
@@ -145,12 +217,11 @@ async def voices():
     return await list_spanish_voices()
 
 
-# ── Memoria persistente ───────────────────────────────────────────────
+# -- Memoria persistente ---
 @app.get("/api/memory")
 async def get_memory():
     from plugins.memory_plugin import load_recent_memory, get_memory_stats
     return {"stats": get_memory_stats(), "entries": load_recent_memory(n=50)}
-
 
 @app.delete("/api/memory")
 async def delete_memory():
@@ -158,7 +229,7 @@ async def delete_memory():
     return {"message": clear_memory()}
 
 
-# ── Tareas ────────────────────────────────────────────────────────────
+# -- Tareas ---
 @app.post("/api/tasks")
 async def create_task(req: TaskRequest):
     return add_task(req.title, req.priority)
@@ -176,7 +247,7 @@ async def remove_task(task_id: int):
     return {"message": delete_task(task_id)}
 
 
-# ── Notas ─────────────────────────────────────────────────────────────
+# -- Notas ---
 @app.post("/api/notes")
 async def create_note(req: NoteRequest):
     return add_note(req.title, req.content)
@@ -190,7 +261,7 @@ async def find_notes(q: str):
     return search_notes(q)
 
 
-# ── Arranque ──────────────────────────────────────────────────────────
+# -- Arranque ---
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host=HOST, port=PORT, reload=True)

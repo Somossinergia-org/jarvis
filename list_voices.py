@@ -1,12 +1,18 @@
-import urllib.request, json
-req = urllib.request.Request(
-    'https://api.elevenlabs.io/v1/voices',
-    headers={'xi-api-key':'sk_2fdd11d488c130eb6d04d90f57fdeb238e47aad903f7e833'}
-)
-with urllib.request.urlopen(req) as r:
-    voices = json.loads(r.read())['voices']
-print("=== Voces masculinas disponibles ===")
-for v in sorted(voices, key=lambda x: x['name']):
-    labels = v.get('labels', {})
-    if labels.get('gender') == 'male':
-        print(f"{v['name']:20} | {v['voice_id']} | accent:{labels.get('accent','-')} | age:{labels.get('age','-')} | use:{labels.get('use case','-')}")
+import os, sys
+sys.path.insert(0, '.')
+from dotenv import load_dotenv
+load_dotenv()
+import httpx
+
+key = os.getenv('ELEVENLABS_API_KEY','')
+print('KEY:', key[:15]+'...' if key else 'NO KEY')
+
+r = httpx.get('https://api.elevenlabs.io/v1/voices', headers={'xi-api-key': key})
+print('STATUS:', r.status_code)
+if r.status_code == 200:
+    for v in sorted(r.json()['voices'], key=lambda x: x['name']):
+        l = v.get('labels',{})
+        if l.get('gender') == 'male':
+            print(f"{v['name']:22} | {v['voice_id']} | {l.get('accent','-')}")
+else:
+    print(r.text[:400])

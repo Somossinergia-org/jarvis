@@ -12,8 +12,10 @@ from config import TTS_VOICE, AUDIO_CACHE_DIR, OPENAI_API_KEY
 os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
-ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")  # George — British, autoritario
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")  # George
 OPENAI_TTS_VOICE   = os.getenv("OPENAI_TTS_VOICE", "onyx")
+GTTS_LANG          = os.getenv("GTTS_LANG", "es")  # Voz Google en espanol
+GTTS_TLD           = os.getenv("GTTS_TLD", "es")   # es = acento espanol de Espana
 
 _OPENAI_VOICES = {"onyx", "alloy", "echo", "fable", "shimmer", "nova"}
 
@@ -99,46 +101,69 @@ async def _edgetts_tts(text: str, voice: str, audio_path: str) -> bool:
         return False
 
 
+async def _gtts_tts(text: str, lang: str, tld: str, audio_path: str) -> bool:
+    """Genera audio con Google TTS (voz espanola natural, gratis)."""
+    try:
+        from gtts import gTTS
+        import asyncio
+        def _gen():
+            tts = gTTS(text=text[:3000], lang=lang, tld=tld, slow=False)
+            tts.save(audio_path)
+        await asyncio.to_thread(_gen)
+        return True
+    except Exception as e:
+        print(f"  [TTS gTTS] Error: {e}")
+        return False
+
+
 async def text_to_speech(text: str, voice: str | None = None) -> str:
     """
     Convierte texto a MP3 con la mejor voz disponible.
-    Prioridad: ElevenLabs (JARVIS real) → OpenAI Onyx → Edge-TTS
+    Prioridad: ElevenLabs -> gTTS Espanol -> OpenAI Onyx -> Edge-TTS
     """
     clean = _clean_text(text)
     if not clean:
-        raise ValueError("Texto vacío para TTS")
+        raise ValueError("Texto vacio para TTS")
 
-    # ElevenLabs siempre usa su propio voice_id (no el parámetro voice de OpenAI)
-    el_voice = ELEVENLABS_VOICE_ID  # George, Callum, etc.
-    cache_key = hashlib.md5(f"{clean}:{el_voice if ELEVENLABS_API_KEY else 'no_el'}".encode()).hexdigest()
+    el_voice = ELEVENLABS_VOICE_ID
+    cache_key = hashlib.md5(f"{clean}:{el_voice if ELEVENLABS_API_KEY else 'gtts'}".encode()).hexdigest()
     audio_path = os.path.join(AUDIO_CACHE_DIR, f"{cache_key}.mp3")
 
     if os.path.exists(audio_path):
         return audio_path
 
-    # ── 1. ElevenLabs (voz JARVIS más cercana) ─────────────────
+    # -- 1. gTTS Google (voz espanola NATIVA de Espana) ----------------
+    ok = await _gtts_tts(clean, GTTS_LANG, GTTS_TLD, audio_path)
+    if ok:
+        print(f"  [TTS] OK gTTS espanol nativo ({GTTS_LANG}-{GTTS_TLD})")
+        return audio_path
+    print("  [TTS] gTTS fallo -> probando ElevenLabs...")
+
+    # -- 2. ElevenLabs (calidad premium, acento britanico) --------------
     if ELEVENLABS_API_KEY:
         ok = await _elevenlabs_tts(clean, el_voice, ELEVENLABS_API_KEY, audio_path)
         if ok:
-            print(f"  [TTS] ✅ ElevenLabs George (voz JARVIS)")
+            print(f"  [TTS] OK ElevenLabs ({el_voice[:8]})")
             return audio_path
-        print("  [TTS] ⚠️  ElevenLabs falló → probando OpenAI...")
+        print("  [TTS] ElevenLabs fallo -> probando OpenAI...")
 
-    # ── 2. OpenAI tts-1-hd "onyx" ───────────────────────────
-    openai_voice = OPENAI_TTS_VOICE  # siempre onyx para OpenAI
+    # -- 3. OpenAI tts-1-hd 'onyx' (calidad alta) -----------------------
+    openai_voice = OPENAI_TTS_VOICE
     ok = await _openai_tts(clean, openai_voice, audio_path)
     if ok:
-        print(f"  [TTS] ✅ OpenAI ({openai_voice})")
+        print(f"  [TTS] OK OpenAI ({openai_voice})")
         return audio_path
-    print("  [TTS] ⚠️  OpenAI falló → usando Edge-TTS...")
+    print("  [TTS] OpenAI fallo -> usando Edge-TTS...")
 
-    # ── 3. Edge-TTS (Microsoft, siempre disponible) ─────────────
+    # -- 4. Edge-TTS (Microsoft, fallback final) -------------------------
     ok = await _edgetts_tts(clean, TTS_VOICE, audio_path)
     if ok:
-        print(f"  [TTS] ✅ Edge-TTS ({TTS_VOICE})")
+        print(f"  [TTS] OK Edge-TTS ({TTS_VOICE})")
         return audio_path
 
     raise RuntimeError("Todos los motores TTS fallaron")
+
+
 
 
 

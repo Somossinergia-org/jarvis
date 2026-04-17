@@ -1,0 +1,10 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+openai==1.82.0
+edge-tts==7.0.2
+python-dotenv==1.1.0
+pydantic==2.11.1
+aiofiles==24.1.0
+websockets==14.2
+httpx==0.28.1
+psutil==7.0.0

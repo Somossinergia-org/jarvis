@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S. — Asistente Personal IA</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;500;700&display=swap');
+
+        :root {
+            --primary: #00d4ff;
+            --primary-dim: #0099cc;
+            --secondary: #00ff88;
+            --warning: #ffaa00;
+            --danger: #ff4444;
+            --bg-dark: #0a0e17;
+            --bg-card: rgba(17,24,39,0.82);
+            --bg-input: rgba(26,35,50,0.9);
+            --text: #e0e8f0;
+            --text-dim: #7a8a9e;
+            --border: rgba(30,45,66,0.8);
+            --glow: rgba(0, 212, 255, 0.15);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ─── THREE.JS CANVAS (fondo 3D) ─────────────────────────── */
+        #bg-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Todo el contenido UI por encima del canvas */
+        .ui-layer {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* --- HEADER --- */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            background: linear-gradient(180deg, rgba(10,14,23,0.95) 0%, rgba(10,14,23,0.6) 100%);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            backdrop-filter: blur(12px);
+            gap: 12px;
+        }
+
+        .logo { display: flex; align-items: center; gap: 12px; }
+
+        .logo-icon {
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid var(--primary);
+            box-shadow: 0 0 16px var(--glow);
+            animation: pulse-glow 3s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+
+        .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 12px var(--glow); }
+            50% { box-shadow: 0 0 28px rgba(0, 212, 255, 0.4); }
+        }
+
+        .logo-text h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 16px; font-weight: 700;
+            color: var(--primary); letter-spacing: 4px;
+        }
+        .logo-text span { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; }
+
+        /* --- SYSTEM STATS --- */
+        .sys-stats {
+            display: flex; align-items: center;
+            gap: 16px; flex: 1; justify-content: center;
+        }
+
+        .stat-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+        .stat-label { font-weight: 600; color: var(--text-dim); letter-spacing: 1px; font-size: 10px; }
+        .stat-bar-wrap { width: 48px; height: 4px; background: rgba(30,45,66,0.5); border-radius: 2px; overflow: hidden; }
+        .stat-bar { height: 100%; border-radius: 2px; transition: width 0.8s ease, background 0.5s; }
+        .stat-bar.cpu  { background: var(--primary); }
+        .stat-bar.ram  { background: var(--secondary); }
+        .stat-bar.disk { background: var(--warning); }
+        .stat-val { font-family: 'Orbitron', sans-serif; font-size: 10px; min-width: 28px; }
+        .stat-val.cpu  { color: var(--primary); }
+        .stat-val.ram  { color: var(--secondary); }
+        .stat-val.disk { color: var(--warning); }
+
+        /* --- HEADER ACTIONS --- */
+        .header-actions { display: flex; gap: 8px; align-items: center; }
+
+        .status-indicator { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--secondary); }
+        .status-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--secondary);
+            animation: blink 2s ease-in-out infinite;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        .btn-icon {
+            background: rgba(26,35,50,0.7);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            width: 34px; height: 34px;
+            border-radius: 8px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s; backdrop-filter: blur(8px);
+        }
+        .btn-icon:hover { border-color: var(--primary); color: var(--primary); background: var(--glow); }
+
+        /* --- FACE CAM PANEL --- */
+        #face-panel {
+            position: fixed; top: 70px; right: 16px;
+            width: 220px;
+            background: rgba(17,24,39,0.9);
+            border: 1px solid var(--border);
+            border-radius: 14px; overflow: hidden;
+            z-index: 200; display: none;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            backdrop-filter: blur(16px);
+        }
+        #face-panel.open { display: block; }
+
+        .face-panel-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px;
+            background: rgba(0,212,255,0.06);
+            border-bottom: 1px solid var(--border);
+            font-size: 11px; font-weight: 600; letter-spacing: 1px; color: var(--primary);
+        }
+
+        .face-panel-body { position: relative; width: 100%; aspect-ratio: 4/3; background: #000; }
+        #face-video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        #face-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+
+        .face-info { padding: 8px 12px; font-size: 11px; line-height: 1.8; color: var(--text-dim); min-height: 52px; }
+        .face-info span { color: var(--primary); font-weight: 600; }
+        .face-status { text-align: center; padding: 6px; font-size: 10px; letter-spacing: 1px; color: var(--text-dim); border-top: 1px solid var(--border); }
+        .face-status.active { color: var(--secondary); }
+
+        /* --- CHAT AREA --- */
+        .chat-container {
+            flex: 1; overflow-y: auto;
+            padding: 20px 24px;
+            display: flex; flex-direction: column;
+            gap: 16px; scroll-behavior: smooth;
+        }
+        .chat-container::-webkit-scrollbar { width: 6px; }
+        .chat-container::-webkit-scrollbar-track { background: transparent; }
+        .chat-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        .message {
+            display: flex; gap: 12px; max-width: 85%;
+            animation: msg-in 0.3s ease-out;
+        }
+        @keyframes msg-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .message.user { align-self: flex-end; flex-direction: row-reverse; }
+        .message.jarvis { align-self: flex-start; }
+
+        .msg-avatar {
+            width: 36px; height: 36px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; overflow: hidden;
+        }
+        .message.jarvis .msg-avatar { border: 2px solid var(--primary-dim); box-shadow: 0 0 8px var(--glow); }
+        .message.jarvis .msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .message.user .msg-avatar { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; font-size: 14px; font-weight: 700; }
+
+        .msg-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 12px 16px;
+            font-size: 15px; line-height: 1.6; letter-spacing: 0.3px;
+            backdrop-filter: blur(12px);
+        }
+        .message.user .msg-content { background: rgba(26,31,61,0.85); border-color: rgba(42,47,93,0.7); border-bottom-right-radius: 4px; }
+        .message.jarvis .msg-content { border-bottom-left-radius: 4px; }
+
+        .msg-content p { margin-bottom: 8px; }
+        .msg-content p:last-child { margin-bottom: 0; }
+        .msg-content code { background: rgba(0,212,255,0.1); color: var(--primary); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        .msg-content pre { background: rgba(13,17,23,0.9); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 8px 0; }
+        .msg-content pre code { background: none; padding: 0; }
+        .msg-content strong { color: var(--primary); }
+        .msg-content em { color: var(--secondary); }
+        .msg-content ul, .msg-content ol { padding-left: 20px; margin: 8px 0; }
+        .msg-content li { margin-bottom: 4px; }
+
+        .typing-indicator { display: flex; gap: 6px; padding: 8px 0; }
+        .typing-indicator span { width: 8px; height: 8px; background: var(--primary); border-radius: 50%; animation: typing 1.4s ease-in-out infinite; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1); } }
+
+        /* --- WELCOME --- */
+        .welcome { text-align: center; padding: 40px 20px; color: var(--text-dim); }
+
+        .welcome-logo {
+            width: 90px; height: 90px; border-radius: 50%;
+            margin: 0 auto 18px;
+            border: 3px solid var(--primary);
+            box-shadow: 0 0 40px rgba(0,212,255,0.4), 0 0 80px rgba(0,212,255,0.15);
+            overflow: hidden;
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+        .welcome-logo img { width: 100%; height: 100%; object-fit: cover; }
+
+        .welcome h2 { font-family: 'Orbitron', sans-serif; font-size: 26px; color: var(--primary); margin-bottom: 8px; letter-spacing: 3px; text-shadow: 0 0 20px rgba(0,212,255,0.5); }
+        .welcome p { font-size: 15px; margin-bottom: 28px; }
+
+        .suggestions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 600px; margin: 0 auto; }
+        .suggestion {
+            background: rgba(17,24,39,0.7);
+            border: 1px solid var(--border);
+            border-radius: 12px; padding: 9px 15px;
+            cursor: pointer; font-size: 13px; color: var(--text);
+            transition: all 0.2s; backdrop-filter: blur(8px);
+        }
+        .suggestion:hover { border-color: var(--primary); background: var(--glow); color: var(--primary); }
+
+        /* --- INPUT AREA --- */
+        .input-area {
+            padding: 14px 24px 18px;
+            background: linear-gradient(0deg, rgba(10,14,23,0.97) 0%, rgba(10,14,23,0.6) 100%);
+            border-top: 1px solid var(--border);
+            flex-shrink: 0; backdrop-filter: blur(16px);
+        }
+        .input-row { display: flex; gap: 10px; align-items: flex-end; max-width: 900px; margin: 0 auto; }
+        .input-wrapper {
+            flex: 1;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            display: flex; align-items: flex-end; padding: 4px;
+            transition: border-color 0.2s; backdrop-filter: blur(12px);
+        }
+        .input-wrapper:focus-within { border-color: var(--primary); box-shadow: 0 0 12px var(--glow); }
+
+        #chat-input {
+            flex: 1; background: none; border: none; color: var(--text);
+            font-family: 'Rajdhani', sans-serif; font-size: 15px;
+            padding: 10px 14px; resize: none; max-height: 120px; outline: none; line-height: 1.5;
+        }
+        #chat-input::placeholder { color: var(--text-dim); }
+
+        .voice-toggle { display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 12px; color: var(--text-dim); cursor: pointer; user-select: none; }
+        .voice-toggle input { display: none; }
+        .voice-toggle .toggle-track { width: 32px; height: 18px; background: var(--border); border-radius: 9px; position: relative; transition: background 0.2s; }
+        .voice-toggle input:checked + .toggle-track { background: var(--primary-dim); }
+        .voice-toggle .toggle-thumb { width: 14px; height: 14px; background: var(--text); border-radius: 50%; position: absolute; top: 2px; left: 2px; transition: transform 0.2s; }
+        .voice-toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(14px); }
+
+        .btn-send, .btn-voice { width: 44px; height: 44px; border-radius: 14px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+        .btn-send { background: var(--primary); color: var(--bg-dark); }
+        .btn-send:hover { background: #33ddff; transform: scale(1.05); }
+        .btn-send:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+        .btn-voice { background: rgba(26,35,50,0.8); border: 1px solid var(--border); color: var(--text-dim); backdrop-filter: blur(8px); }
+        .btn-voice:hover { border-color: var(--danger); color: var(--danger); }
+        .btn-voice.listening { background: rgba(255,68,68,0.15); border-color: var(--danger); color: var(--danger); animation: pulse-red 1.5s ease-in-out infinite; }
+        @keyframes pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,68,68,0.3); } 50% { box-shadow: 0 0 0 10px rgba(255,68,68,0); } }
+
+        .input-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding: 0 4px; font-size: 11px; color: var(--text-dim); }
+
+        @media (max-width: 768px) { .sys-stats { display: none; } .header { padding: 8px 14px; } .chat-container { padding: 12px 14px; } .input-area { padding: 10px 14px 14px; } .message { max-width: 95%; } }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════ FONDO 3D THREE.JS ═══════════════════ -->
+<canvas id="bg-canvas"></canvas>
+
+<div class="ui-layer">
+
+    <!-- HEADER -->
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">
+                <img src="/static/jarvis_logo.png" alt="JARVIS" onerror="this.style.display='none'">
+            </div>
+            <div class="logo-text">
+                <h1>J.A.R.V.I.S.</h1>
+                <span>Asistente Personal de IA</span>
+            </div>
+        </div>
+
+        <div class="sys-stats" id="sys-stats">
+            <div class="stat-item">
+                <span class="stat-label">CPU</span>
+                <div class="stat-bar-wrap"><div class="stat-bar cpu" id="bar-cpu" style="width:0%"></div></div>
+                <span class="stat-val cpu" id="val-cpu">—</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">RAM</span>
+                <div class="stat-bar-wrap"><div class="stat-bar ram" id="bar-ram" style="width:0%"></div></div>
+                <span class="stat-val ram" id="val-ram">—</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">DISCO</span>
+                <div class="stat-bar-wrap"><div class="stat-bar disk" id="bar-disk" style="width:0%"></div></div>
+                <span class="stat-val disk" id="val-disk">—</span>
+            </div>
+        </div>
+
+        <div class="header-actions">
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                En línea
+            </div>
+            <button class="btn-icon" id="btn-cam" onclick="toggleFacePanel()" title="Reconocimiento facial (Ctrl+Shift+C)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+            </button>
+            <button class="btn-icon" onclick="clearChat()" title="Limpiar chat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- PANEL FACIAL -->
+    <div id="face-panel">
+        <div class="face-panel-header">
+            <span>📷 VISIÓN JARVIS</span>
+            <button onclick="toggleFacePanel()" style="background:none;border:none;color:#7a8a9e;cursor:pointer;font-size:16px;">×</button>
+        </div>
+        <div class="face-panel-body">
+            <video id="face-video" autoplay muted playsinline></video>
+            <canvas id="face-canvas"></canvas>
+        </div>
+        <div class="face-info" id="face-info">Iniciando cámara...</div>
+        <div class="face-status" id="face-status">ESPERANDO</div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="chat-container" id="chat-container">
+        <div class="welcome" id="welcome-screen">
+            <div class="welcome-logo">
+                <img src="/static/jarvis_logo.png" alt="JARVIS">
+            </div>
+            <h2>Bienvenido, señor</h2>
+            <p>Soy JARVIS, su asistente personal. ¿En qué puedo ayudarle hoy?</p>
+            <div class="suggestions">
+                <div class="suggestion" onclick="sendSuggestion(this)">🕐 ¿Qué hora es?</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">💻 Estado de mi sistema</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">📝 Crea una lista de tareas para hoy</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">💡 Dame una idea de proyecto</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">📊 Resume las últimas noticias tech</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">🏠 Configura la domótica de mi casa</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- INPUT -->
+    <div class="input-area">
+        <div class="input-row">
+            <div class="input-wrapper">
+                <textarea id="chat-input" rows="1" placeholder="Escribe un mensaje o pulsa el micrófono..."
+                    onkeydown="handleKeydown(event)" oninput="autoResize(this)"></textarea>
+            </div>
+            <button class="btn-voice" id="btn-voice" onclick="toggleVoice()" title="Hablar (Ctrl+Shift+Espacio)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            </button>
+            <button class="btn-send" id="btn-send" onclick="sendMessage()" disabled title="Enviar">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+        </div>
+        <div class="input-meta">
+            <label class="voice-toggle">
+                <span>🔊 Respuesta por voz</span>
+                <input type="checkbox" id="speak-toggle" checked>
+                <div class="toggle-track"><div class="toggle-thumb"></div></div>
+            </label>
+            <span id="char-count"></span>
+        </div>
+    </div>
+
+</div><!-- /ui-layer -->
+
+<!-- Three.js -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<!-- face-api.js -->
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<!-- Marked.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.4/marked.min.js"></script>
+
+<script>
+// ================================================================
+//  FONDO 3D — TÚNEL HOLOGRÁFICO (Three.js)
+// ================================================================
+(function() {
+    const canvas = document.getElementById('bg-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x0a0e17, 1);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a0e17, 0.045);
+
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0, 0);
+
+    // ── Geometría del túnel (cilindro con caras hacia dentro) ──
+    const TUNNEL_RADIUS     = 6;
+    const TUNNEL_LENGTH     = 80;
+    const TUNNEL_SEGMENTS_R = 12;
+    const TUNNEL_SEGMENTS_L = 60;
+
+    const tunnelGeo = new THREE.CylinderGeometry(
+        TUNNEL_RADIUS, TUNNEL_RADIUS, TUNNEL_LENGTH,
+        TUNNEL_SEGMENTS_R, TUNNEL_SEGMENTS_L, true
+    );
+
+    // Invertir normales para ver el interior
+    tunnelGeo.scale(-1, 1, 1);
+
+    // Material con wireframe parcial + color cyan
+    const tunnelMat = new THREE.MeshBasicMaterial({
+        color: 0x003344,
+        wireframe: false,
+        side: THREE.BackSide,
+    });
+
+    const tunnel = new THREE.Mesh(tunnelGeo, tunnelMat);
+    tunnel.rotation.x = Math.PI / 2;
+    scene.add(tunnel);
+
+    // ── Grid de paneles sobre el túnel ──
+    const panelGroup = new THREE.Group();
+    scene.add(panelGroup);
+
+    const panelColors = [0x004466, 0x005577, 0x003355, 0x002244];
+    const panelEmissive = [0x001122, 0x002233, 0x001a2a];
+
+    for (let ring = 0; ring < TUNNEL_SEGMENTS_L; ring++) {
+        for (let seg = 0; seg < TUNNEL_SEGMENTS_R; seg++) {
+            const angle = (seg / TUNNEL_SEGMENTS_R) * Math.PI * 2;
+            const z = -TUNNEL_LENGTH / 2 + (ring / TUNNEL_SEGMENTS_L) * TUNNEL_LENGTH + 0.7;
+            const x = Math.cos(angle) * (TUNNEL_RADIUS - 0.15);
+            const y = Math.sin(angle) * (TUNNEL_RADIUS - 0.15);
+
+            const w = (2 * Math.PI * (TUNNEL_RADIUS - 0.15)) / TUNNEL_SEGMENTS_R - 0.15;
+            const h = TUNNEL_LENGTH / TUNNEL_SEGMENTS_L - 0.15;
+
+            const geo = new THREE.PlaneGeometry(w, h);
+            const mat = new THREE.MeshStandardMaterial({
+                color: panelColors[Math.floor(Math.random() * panelColors.length)],
+                emissive: panelEmissive[Math.floor(Math.random() * panelEmissive.length)],
+                emissiveIntensity: Math.random() * 0.6 + 0.1,
+                metalness: 0.8,
+                roughness: 0.4,
+                transparent: true,
+                opacity: 0.75,
+            });
+
+            const panel = new THREE.Mesh(geo, mat);
+            panel.position.set(x, y, z);
+            panel.lookAt(0, 0, z);
+            panel.rotateY(Math.PI);
+
+            // Algunos paneles parpadean
+            if (Math.random() < 0.08) {
+                panel.userData.flicker = true;
+                panel.userData.flickerSpeed = Math.random() * 3 + 1;
+                panel.userData.flickerOffset = Math.random() * Math.PI * 2;
+            }
+
+            panelGroup.add(panel);
+        }
+    }
+
+    // ── Líneas de rejilla sobre el túnel ──
+    const gridMat = new THREE.LineBasicMaterial({ color: 0x004466, transparent: true, opacity: 0.35 });
+
+    // Círculos horizontales
+    for (let i = 0; i <= TUNNEL_SEGMENTS_L; i += 3) {
+        const z = -TUNNEL_LENGTH / 2 + (i / TUNNEL_SEGMENTS_L) * TUNNEL_LENGTH;
+        const pts = [];
+        for (let j = 0; j <= 64; j++) {
+            const a = (j / 64) * Math.PI * 2;
+            pts.push(new THREE.Vector3(Math.cos(a) * TUNNEL_RADIUS, Math.sin(a) * TUNNEL_RADIUS, z));
+        }
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+        scene.add(new THREE.Line(lineGeo, gridMat));
+    }
+
+    // Líneas longitudinales
+    for (let s = 0; s < TUNNEL_SEGMENTS_R; s++) {
+        const angle = (s / TUNNEL_SEGMENTS_R) * Math.PI * 2;
+        const pts = [
+            new THREE.Vector3(Math.cos(angle) * TUNNEL_RADIUS, Math.sin(angle) * TUNNEL_RADIUS, -TUNNEL_LENGTH / 2),
+            new THREE.Vector3(Math.cos(angle) * TUNNEL_RADIUS, Math.sin(angle) * TUNNEL_RADIUS,  TUNNEL_LENGTH / 2),
+        ];
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+        scene.add(new THREE.Line(lineGeo, gridMat));
+    }
+
+    // ── Partículas (estrellas/polvo de luz) ──
+    const PARTICLE_COUNT = 1200;
+    const pPositions = new Float32Array(PARTICLE_COUNT * 3);
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const r = Math.random() * (TUNNEL_RADIUS - 0.5);
+        pPositions[i * 3]     = Math.cos(angle) * r;
+        pPositions[i * 3 + 1] = Math.sin(angle) * r;
+        pPositions[i * 3 + 2] = (Math.random() - 0.5) * TUNNEL_LENGTH;
+    }
+    const pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+    const pMat = new THREE.PointsMaterial({ color: 0x00d4ff, size: 0.05, transparent: true, opacity: 0.6 });
+    const particles = new THREE.Points(pGeo, pMat);
+    scene.add(particles);
+
+    // ── Luz central (glow al fondo del túnel) ──
+    const coreLight = new THREE.PointLight(0x00d4ff, 3, 20);
+    coreLight.position.set(0, 0, -30);
+    scene.add(coreLight);
+
+    const ambientLight = new THREE.AmbientLight(0x001133, 1.5);
+    scene.add(ambientLight);
+
+    // ── Animación ──
+    let clock = new THREE.Clock();
+    let cameraZ = 0;
+    const SPEED = 1.8;
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const t = clock.getElapsedTime();
+        const delta = clock.getDelta ? 0.016 : 0.016;
+
+        // Avanzar por el túnel
+        cameraZ -= SPEED * 0.016;
+        // Reiniciar posición cuando llega al final (loop infinito)
+        if (cameraZ < -TUNNEL_LENGTH / 2 + 2) cameraZ += TUNNEL_LENGTH;
+
+        camera.position.z = cameraZ;
+
+        // Leve movimiento de balanceo de cámara
+        camera.position.x = Math.sin(t * 0.15) * 0.3;
+        camera.position.y = Math.cos(t * 0.12) * 0.2;
+        camera.lookAt(camera.position.x * 0.5, camera.position.y * 0.5, cameraZ - 10);
+
+        // Partículas rotando suavemente
+        particles.rotation.z = t * 0.04;
+
+        // Luz del núcleo pulsando
+        coreLight.intensity = 2.5 + Math.sin(t * 1.5) * 1.0;
+
+        // Parpadeo de paneles
+        panelGroup.children.forEach(panel => {
+            if (panel.userData.flicker) {
+                const f = panel.userData;
+                panel.material.emissiveIntensity = 0.3 + Math.abs(Math.sin(t * f.flickerSpeed + f.flickerOffset)) * 0.8;
+            }
+        });
+
+        renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Responsive
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+})();
+
+
+// ================================================================
+//  CHAT & UI
+// ================================================================
+marked.setOptions({ breaks: true, gfm: true });
+
+const chatContainer = document.getElementById('chat-container');
+const chatInput     = document.getElementById('chat-input');
+const btnSend       = document.getElementById('btn-send');
+const btnVoice      = document.getElementById('btn-voice');
+const speakToggle   = document.getElementById('speak-toggle');
+
+let isListening = false, recognition = null, isProcessing = false, currentAudio = null;
+
+chatInput.addEventListener('input', () => { btnSend.disabled = !chatInput.value.trim(); });
+
+function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }
+function handleKeydown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
+
+function sendSuggestion(el) {
+    chatInput.value = el.textContent.replace(/^[^\s]+\s/, '');
+    btnSend.disabled = false;
+    sendMessage();
+}
+
+function addMessage(role, content) {
+    const ws = document.getElementById('welcome-screen');
+    if (ws) ws.remove();
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role}`;
+    const avatar = document.createElement('div');
+    avatar.className = 'msg-avatar';
+    if (role === 'jarvis') {
+        avatar.innerHTML = '<img src="/static/jarvis_logo.png" alt="J" onerror="this.outerHTML=\'J\'">';
+    } else {
+        avatar.textContent = 'D';
+    }
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'msg-content';
+    contentDiv.innerHTML = role === 'jarvis' ? marked.parse(content) : '';
+    if (role !== 'jarvis') contentDiv.textContent = content;
+    msgDiv.appendChild(avatar);
+    msgDiv.appendChild(contentDiv);
+    chatContainer.appendChild(msgDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+    return msgDiv;
+}
+
+function addTypingIndicator() {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message jarvis'; msgDiv.id = 'typing-indicator';
+    const av = document.createElement('div'); av.className = 'msg-avatar';
+    av.innerHTML = '<img src="/static/jarvis_logo.png" alt="J" onerror="this.outerHTML=\'J\'">';
+    const cd = document.createElement('div'); cd.className = 'msg-content';
+    cd.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+    msgDiv.appendChild(av); msgDiv.appendChild(cd);
+    chatContainer.appendChild(msgDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+function removeTypingIndicator() { const el = document.getElementById('typing-indicator'); if (el) el.remove(); }
+
+async function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text || isProcessing) return;
+    isProcessing = true; btnSend.disabled = true;
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    addMessage('user', text);
+    chatInput.value = ''; chatInput.style.height = 'auto';
+    addTypingIndicator();
+    try {
+        const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, is_voice: false, speak_response: speakToggle.checked }) });
+        const data = await res.json();
+        removeTypingIndicator(); addMessage('jarvis', data.response);
+        if (data.audio_url) playAudio(data.audio_url);
+    } catch (e) { removeTypingIndicator(); addMessage('jarvis', '⚠️ Error de conexión con el servidor.'); }
+    isProcessing = false; btnSend.disabled = false; chatInput.focus();
+}
+
+function playAudio(url) { if (currentAudio) currentAudio.pause(); currentAudio = new Audio(url); currentAudio.play().catch(() => {}); }
+
+function initSpeechRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { btnVoice.style.opacity = '0.3'; btnVoice.style.cursor = 'not-allowed'; return; }
+    recognition = new SR();
+    recognition.lang = 'es-ES'; recognition.continuous = false; recognition.interimResults = true;
+    recognition.onresult = e => {
+        const t = Array.from(e.results).map(r => r[0].transcript).join('');
+        chatInput.value = t; btnSend.disabled = !t.trim();
+        if (e.results[e.results.length - 1].isFinal) { stopListening(); if (t.trim()) sendVoiceMessage(t.trim()); }
+    };
+    recognition.onerror = () => stopListening();
+    recognition.onend = () => stopListening();
+}
+
+function toggleVoice() { if (!recognition) return; isListening ? (recognition.stop(), stopListening()) : startListening(); }
+function startListening() { if (!recognition) return; if (currentAudio) { currentAudio.pause(); currentAudio = null; } isListening = true; btnVoice.classList.add('listening'); chatInput.placeholder = '🎤 Escuchando...'; recognition.start(); }
+function stopListening() { isListening = false; btnVoice.classList.remove('listening'); chatInput.placeholder = 'Escribe un mensaje o pulsa el micrófono...'; }
+
+async function sendVoiceMessage(text) {
+    if (isProcessing) return; isProcessing = true;
+    addMessage('user', text); chatInput.value = ''; addTypingIndicator();
+    try {
+        const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, is_voice: true, speak_response: true }) });
+        const data = await res.json(); removeTypingIndicator(); addMessage('jarvis', data.response);
+        if (data.audio_url) playAudio(data.audio_url);
+    } catch (e) { removeTypingIndicator(); addMessage('jarvis', '⚠️ Error de conexión.'); }
+    isProcessing = false;
+}
+
+async function clearChat() {
+    try { await fetch('/api/clear', { method: 'POST' }); } catch(e) {}
+    chatContainer.innerHTML = `
+        <div class="welcome" id="welcome-screen">
+            <div class="welcome-logo"><img src="/static/jarvis_logo.png" alt="JARVIS"></div>
+            <h2>Bienvenido, señor</h2>
+            <p>Soy JARVIS, su asistente personal. ¿En qué puedo ayudarle hoy?</p>
+            <div class="suggestions">
+                <div class="suggestion" onclick="sendSuggestion(this)">🕐 ¿Qué hora es?</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">💻 Estado de mi sistema</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">📝 Crea una lista de tareas para hoy</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">💡 Dame una idea de proyecto</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">📊 Resume las últimas noticias tech</div>
+                <div class="suggestion" onclick="sendSuggestion(this)">🏠 Configura la domótica de mi casa</div>
+            </div>
+        </div>`;
+}
+
+// ── Sistema en tiempo real ──
+async function updateSystemStats() {
+    try {
+        const d = await fetch('/api/system').then(r => r.json());
+        const cpu = d.cpu_uso_porcentaje ?? 0, ram = d.ram_uso_porcentaje ?? 0, disk = d.disco_uso_porcentaje ?? 0;
+        document.getElementById('bar-cpu').style.width  = cpu  + '%';
+        document.getElementById('bar-ram').style.width  = ram  + '%';
+        document.getElementById('bar-disk').style.width = disk + '%';
+        document.getElementById('val-cpu').textContent  = cpu  + '%';
+        document.getElementById('val-ram').textContent  = ram  + '%';
+        document.getElementById('val-disk').textContent = disk + '%';
+    } catch(e) {}
+}
+updateSystemStats();
+setInterval(updateSystemStats, 5000);
+
+// ── Reconocimiento facial ──
+const facePanel  = document.getElementById('face-panel');
+const faceVideo  = document.getElementById('face-video');
+const faceCanvas = document.getElementById('face-canvas');
+const faceInfo   = document.getElementById('face-info');
+const faceStatus = document.getElementById('face-status');
+
+let faceActive = false, faceStream = null, faceDetectLoop = null, faceModelsLoaded = false, greeted = false;
+const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
+
+async function loadFaceModels() {
+    if (faceModelsLoaded) return true;
+    faceStatus.textContent = 'CARGANDO MODELOS...';
+    try {
+        await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
+            faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL),
+        ]);
+        faceModelsLoaded = true; return true;
+    } catch(e) { faceInfo.innerHTML = '⚠️ Error cargando modelos.'; return false; }
+}
+
+async function toggleFacePanel() {
+    if (faceActive) { stopFacePanel(); return; }
+    facePanel.classList.add('open');
+    document.getElementById('btn-cam').style.color = 'var(--primary)';
+    faceActive = true;
+    await startFaceDetection();
+}
+
+async function startFaceDetection() {
+    faceInfo.textContent = 'Cargando modelos de IA...';
+    if (!await loadFaceModels()) return;
+    try {
+        faceStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        faceVideo.srcObject = faceStream;
+        await new Promise(r => faceVideo.onloadedmetadata = r);
+        faceCanvas.width = faceVideo.videoWidth; faceCanvas.height = faceVideo.videoHeight;
+        faceStatus.textContent = 'ACTIVO'; faceStatus.classList.add('active');
+        faceInfo.textContent = 'Buscando rostros...';
+        faceDetectLoop = setInterval(detectFace, 600);
+    } catch(e) { faceInfo.innerHTML = '⚠️ Sin acceso a la cámara.'; faceStatus.textContent = 'SIN PERMISO'; }
+}
+
+async function detectFace() {
+    try {
+        const detections = await faceapi.detectAllFaces(faceVideo, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions().withAgeAndGender();
+        const ctx = faceCanvas.getContext('2d');
+        ctx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+        if (!detections.length) { faceInfo.textContent = 'No se detecta ningún rostro...'; return; }
+        const d = detections[0]; const box = d.detection.box;
+        const sx = faceCanvas.width / faceVideo.videoWidth, sy = faceCanvas.height / faceVideo.videoHeight;
+        ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2; ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 8;
+        ctx.strokeRect((faceCanvas.width - box.x * sx - box.width * sx), box.y * sy, box.width * sx, box.height * sy);
+        const topEmo = Object.entries(d.expressions).sort((a,b) => b[1]-a[1])[0];
+        const emoMap = { neutral:'Neutral 😐', happy:'Feliz 😊', sad:'Triste 😢', angry:'Enfadado 😡', surprised:'Sorprendido 😮', disgusted:'Disgustado 😒', fearful:'Asustado 😨' };
+        faceInfo.innerHTML = `Edad: <span>~${Math.round(d.age)} años</span><br>Género: <span>${d.gender === 'male' ? 'Hombre' : 'Mujer'}</span><br>Estado: <span>${emoMap[topEmo[0]] || topEmo[0]}</span>`;
+        if (!greeted) {
+            greeted = true;
+            const h = new Date().getHours();
+            const sal = h < 12 ? 'Buenos días' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
+            addMessage('jarvis', `${sal}, señor. Le detecto frente al sistema. Listo para asistirle.`);
+        }
+    } catch(e) {}
+}
+
+function stopFacePanel() {
+    clearInterval(faceDetectLoop);
+    if (faceStream) { faceStream.getTracks().forEach(t => t.stop()); faceStream = null; }
+    facePanel.classList.remove('open');
+    document.getElementById('btn-cam').style.color = '';
+    faceActive = false; faceStatus.textContent = 'ESPERANDO'; faceStatus.classList.remove('active');
+    faceInfo.textContent = 'Iniciando cámara...';
+}
+
+// ── Atajos teclado ──
+document.addEventListener('keydown', e => {
+    if (e.ctrlKey && e.shiftKey && e.code === 'Space') { e.preventDefault(); toggleVoice(); }
+    if (e.ctrlKey && e.shiftKey && e.key === 'C') { e.preventDefault(); toggleFacePanel(); }
+});
+
+initSpeechRecognition();
+chatInput.focus();
+</script>
+</body>
+</html>

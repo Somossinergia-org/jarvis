@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -643,7 +643,6 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
   </div>
 
   <!-- ARCHIVOS — HOLOGRAPHIC FILE BROWSER -->
-    <!-- ARCHIVOS — HOLOGRAPHIC FILE BROWSER -->
   <div class="node-panel" id="panel-files">
     <div class="np-box fb-panel-box">
       <div class="np-inner">
@@ -799,9 +798,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.setSize(window.innerWidth,window.innerHeight);
 
 const scene=new THREE.Scene();
-window._scene=scene;window._cam=cam;
 const cam=new THREE.PerspectiveCamera(58,window.innerWidth/window.innerHeight,0.1,500);
 cam.position.set(0,0,12);
+window._scene=scene;window._cam=cam;  // exposed for FS3D cells
 
 // Lights
 scene.add(new THREE.AmbientLight(0x05101e,3));
@@ -959,7 +958,12 @@ function flyToNode(nd){
   closeAllPanels();
   document.getElementById('btn-back').style.display='flex';
   if(nd.id==='memory')loadMemory();
-    if(nd.id==='files'){setTimeout(()=>enterFSMode3D('~'),200); return;}
+    if(nd.id==='files'){
+      setTimeout(()=>enterFSMode3D('~'),200);
+      document.getElementById('btn-back').style.display='flex';
+      document.getElementById('brain-hint').classList.add('hidden');
+      return;
+    }
 
   if(nd.id==='system')refreshSysPanel();
   const endPos=nd.pos.clone().add(new THREE.Vector3(0,0,3.5));
@@ -1054,16 +1058,6 @@ var CAM_CONSTRAINTS = [
   {video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false},
   {video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false},
   {video:{width:{ideal:320},height:{ideal:240}},audio:false},
-  {video:true, audio:false},
-];
-// (declarations moved to top of camera block)
-  // Best quality first
-  {video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false},
-  // HD fallback
-  {video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false},
-  // SD fallback
-  {video:{width:{ideal:320},height:{ideal:240}},         audio:false},
-  // Any camera at all
   {video:true, audio:false},
 ];
 
@@ -1192,54 +1186,78 @@ function startCameraWatchdog() {
 }
 
 async function startAuth(){
-  setAuthStatus('ACTIVANDO CÁMARA...',null,10);
+  setAuthStatus('ACTIVANDO CÁMARA...',null,5);
 
-  // Check if getUserMedia is available
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    setAuthStatus('SIN SOPORTE DE CÁMARA','Navegador no compatible',0,'var(--r)');
-    document.getElementById('auth-register-btn').style.display='flex';
+    setAuthStatus('SIN SOPORTE','Navegador no compatible',0,'var(--r)');
+    setTimeout(()=>activateMainUI('Invitado'),2500);
+    return;
+  }
+
+  // Get camera FIRST — don't wait for face-api
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(
+      {video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false}
+    );
+    cameraStream = stream;
+    window.cameraStream = stream;
+    cameraActive = true;
+
+    // Assign stream to BOTH video elements immediately
+    ['scanner-video','cam-video'].forEach(id => {
+      const v = document.getElementById(id);
+      if (!v) return;
+      v.srcObject = stream;
+      v.muted = true;
+      v.playsInline = true;
+      v.autoplay = true;
+      v.play().catch(()=>{});
+      v.onloadedmetadata = () => v.play().catch(()=>{});
+    });
+
+    setAuthStatus('CÁMARA ACTIVA','Escaneando identidad...',30);
+    document.getElementById('mc-badge').textContent = '● LIVE';
+    startCameraWatchdog();
+
+    // Load face-api in background (non-blocking)
+    loadFaceApi();
+
+  } catch(e) {
+    if (e.name === 'NotAllowedError') {
+      setAuthStatus('PERMISO DENEGADO','Permite la cámara en el navegador',0,'var(--r)');
+    } else {
+      setAuthStatus('CÁMARA NO DISPONIBLE','Modo sin biométricos',30,'var(--w)');
+    }
     setTimeout(()=>activateMainUI('Invitado'),3000);
-    return;
   }
-
-  const stream = await startCamera(0);
-
-  if (!stream) {
-    // No camera available at all
-    setAuthStatus('CÁMARA NO DISPONIBLE','Modo sin cámara activado',30,'var(--w)');
-    cameraActive = false;
-    document.getElementById('auth-register-btn').style.display='flex';
-    setTimeout(()=>activateMainUI('Invitado'),3000);
-    return;
-  }
-
-  if (stream === 'DENIED') {
-    setAuthStatus('PERMISO DENEGADO','Accede a Configuración → Privacidad → Cámara y permite el acceso',0,'var(--r)');
-    document.getElementById('auth-register-btn').style.display='flex';
-    setTimeout(()=>activateMainUI('Invitado'),4000);
-    return;
-  }
-
-  attachStream(stream);
-  setAuthStatus('CÁMARA ACTIVA','Cargando inteligencia neural...',25);
-  startCameraWatchdog();
-  loadFaceApi();
 }
 
 async function loadFaceApi(){
   try{
-    if(!window.faceapi){setAuthStatus('MODO SIN BIOMÉTRICOS','Usando autenticación por voz',50,'var(--w)');checkAutoRegister();return;}
-    setAuthStatus('CARGANDO DETECTOR FACIAL...',null,35);
+    if(!window.faceapi){
+      // face-api not loaded from CDN yet — wait max 5s
+      let waited=0;
+      while(!window.faceapi && waited<5000){
+        await new Promise(r=>setTimeout(r,200)); waited+=200;
+      }
+      if(!window.faceapi){
+        checkAutoRegister();
+        // Auto-login if no face stored
+        if(!localStorage.getItem('jarvis_face')) activateMainUI('Invitado');
+        return;
+      }
+    }
     await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-    setAuthStatus('DETECTOR OK','Cargando reconocimiento facial...',55);
     await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
     await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
     faceApiReady=true;
     setAuthStatus('ESCANEANDO ROSTRO','Buscando identidad registrada...',70);
-    checkAutoRegister();startFaceDetection();
+    checkAutoRegister();
+    startFaceDetection();
   }catch(e){
-    setAuthStatus('IA FACIAL NO DISPONIBLE','Sistema activo en modo voz',50,'var(--w)');
-    setTimeout(()=>activateMainUI(''),2500);
+    console.warn('[FaceAPI] Error:',e);
+    setAuthStatus('ESCANEANDO...','Sistema en modo básico',50,'var(--w)');
+    if(!localStorage.getItem('jarvis_face')) setTimeout(()=>activateMainUI('Invitado'),2000);
   }
 }
 
@@ -2044,12 +2062,16 @@ function exitFSMode() {
   clearFS3DNodes();
   fsHistory3D = [];
   document.getElementById('fs-hud').classList.remove('active');
+  document.getElementById('btn-back').style.display='none';
+  document.getElementById('brain-hint').classList.remove('hidden');
   // Restore main node opacity
   NODES.forEach(n => {
     if (n.pts && n.pts.material) n.pts.material.opacity = 0.9;
   });
-  // Close any open panel
-  if (activeNode) flyBack();
+  // Reset navigation state
+  activeNode = null;
+  autoRotate = true;
+  closeAllPanels();
   showGBadge('⬡ CEREBRO');
 }
 
@@ -2062,9 +2084,10 @@ function tweenToSph(theta, phi, r, ms) {
   function step(now) {
     const t = Math.min((now - t0) / (ms || 600), 1);
     const e = 1 - Math.pow(1 - t, 3);
-    if(window._sph){window._sph.theta = start.theta + (end.theta - start.theta) * e;
-    window._sph.phi   = start.phi   + (end.phi   - start.phi)   * e;
-    window._sph.r     = start.r     + (end.r     - start.r)     * e;}
+    const s=window._sph||{};
+    s.theta=start.theta+(end.theta-start.theta)*e;
+    s.phi=start.phi+(end.phi-start.phi)*e;
+    s.r=start.r+(end.r-start.r)*e;
     if (t < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);

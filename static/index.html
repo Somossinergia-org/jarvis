@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -324,6 +324,10 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
   <div id="auth-sub">Posiciona tu rostro frente a la cámara</div>
   <div id="auth-bar-wrap"><div id="auth-bar"></div></div>
   <button id="auth-register-btn" onclick="authRegisterFace()">REGISTRAR IDENTIDAD</button>
+  <div style="margin-top:10px;display:flex;gap:10px;justify-content:center;">
+    <button onclick="skipAuth()" style="background:none;border:1px solid rgba(0,212,255,.2);border-radius:8px;color:var(--txd);font-family:Orbitron,monospace;font-size:8px;letter-spacing:2px;padding:5px 14px;cursor:pointer;">SALTAR</button>
+    <button onclick="localStorage.removeItem('jarvis_face');location.reload()" style="background:none;border:1px solid rgba(255,68,68,.2);border-radius:8px;color:rgba(255,68,68,.5);font-family:Orbitron,monospace;font-size:8px;letter-spacing:2px;padding:5px 14px;cursor:pointer;">BORRAR ID</button>
+  </div>
 </div>
 
 <!-- ══ SYSTEM ACTIVATED TOAST ══ -->
@@ -652,30 +656,57 @@ function checkAutoRegister(){
 
 function startFaceDetection(){
   if(faceDetectionInterval)clearInterval(faceDetectionInterval);
-  faceDetectionInterval=setInterval(detectFace,800);
+  faceDetectionInterval=setInterval(detectFace,400); // 400ms = deteccion rapida
   scannerRing.classList.add('scanning');
 }
 
+let consecutiveMatches=0;
 async function detectFace(){
   if(!faceApiReady||!cameraActive)return;
   try{
-    const det=await faceapi.detectSingleFace(scannerVideo,new faceapi.TinyFaceDetectorOptions({inputSize:160,scoreThreshold:.4})).withFaceLandmarks(true).withFaceDescriptor();
-    if(!det)return;
+    // inputSize 128 = rapido; scoreThreshold bajo para detectar mejor
+    const det=await faceapi
+      .detectSingleFace(scannerVideo,new faceapi.TinyFaceDetectorOptions({inputSize:128,scoreThreshold:.3}))
+      .withFaceLandmarks(true)
+      .withFaceDescriptor();
+
+    if(!det){
+      consecutiveMatches=0;
+      scannerRing.classList.remove('verified');
+      scannerRing.classList.add('scanning');
+      return;
+    }
 
     const stored=localStorage.getItem('jarvis_face');
-    if(!stored){setAuthStatus('ROSTRO DETECTADO','Pulsa REGISTRAR para guardar tu identidad',80,'var(--w)');return;}
+    if(!stored){
+      setAuthStatus('ROSTRO DETECTADO','Pulsa REGISTRAR para guardar tu identidad',80,'var(--w)');
+      authRegisterBtn.style.display='block';
+      return;
+    }
 
     const storedData=JSON.parse(stored);
     const storedDesc=new Float32Array(storedData.descriptor);
     const dist=faceapi.euclideanDistance(det.descriptor,storedDesc);
+    const pct=Math.max(0,Math.min(100,Math.round((1-dist/0.9)*100)));
 
-    setAuthStatus(`ANALIZANDO... (${dist.toFixed(2)})`,'Verificando identidad...',85);
+    setAuthStatus(
+      dist<0.5 ? 'IDENTIDAD CONFIRMADA' : dist<0.68 ? 'RECONOCIENDO...' : 'ANALIZANDO...',
+      `Similitud: ${pct}% (necesitas >25%)`,
+      60+pct*0.35
+    );
 
-    if(dist<.55){
-      clearInterval(faceDetectionInterval);
-      onIdentityVerified(storedData.name||'SEÑOR');
+    // Threshold generoso: 0.68 (antes 0.55). 2 detecciones consecutivas para confirmar
+    if(dist<0.68){
+      consecutiveMatches++;
+      if(consecutiveMatches>=2){
+        consecutiveMatches=0;
+        clearInterval(faceDetectionInterval);
+        onIdentityVerified(storedData.name||'Senor');
+      }
+    }else{
+      consecutiveMatches=0;
     }
-  }catch(e){}
+  }catch(e){console.warn('detectFace:',e);}
 }
 
 function onIdentityVerified(name){
@@ -707,17 +738,53 @@ function onIdentityVerified(name){
 }
 
 async function authRegisterFace(){
-  if(!faceApiReady||!cameraActive){alert('Cámara o Face-API no disponible.');return;}
-  setAuthStatus('CAPTURANDO DATOS BIOMÉTRICOS...','No te muevas...',90,'var(--w)');
-  try{
-    const det=await faceapi.detectSingleFace(scannerVideo,new faceapi.TinyFaceDetectorOptions({inputSize:224,scoreThreshold:.5})).withFaceLandmarks(true).withFaceDescriptor();
-    if(!det){setAuthStatus('NO SE DETECTÓ ROSTRO','Asegúrate de estar bien iluminado',80,'var(--r)');return;}
-    const name=prompt('¿Tu nombre para JARVIS?','Señor')||'Señor';
-    localStorage.setItem('jarvis_face',JSON.stringify({name,descriptor:Array.from(det.descriptor)}));
-    authRegisterBtn.style.display='none';
-    setAuthStatus('IDENTIDAD REGISTRADA','Sistema de reconocimiento activado',95,'var(--g)');
-    setTimeout(()=>startFaceDetection(),1000);
-  }catch(e){setAuthStatus('ERROR AL REGISTRAR','Intenta de nuevo',70,'var(--r)');}
+  if(!cameraActive){alert('La camara no esta activa.');return;}
+  if(!faceApiReady){alert('Los modelos de IA aun estan cargando, espera unos segundos.');return;}
+
+  authRegisterBtn.disabled=true;
+  authRegisterBtn.textContent='CAPTURANDO...';
+
+  const N_SAMPLES=3;  // tomar 3 muestras para mas precision
+  const descriptors=[];
+
+  for(let i=0;i<N_SAMPLES;i++){
+    setAuthStatus(`MUESTRA ${i+1}/${N_SAMPLES}...`,'Mantente quieto y bien iluminado',75+i*7,'var(--w)');
+    await new Promise(r=>setTimeout(r,400));
+    let det=null;
+    // Reintentar hasta 5 veces por muestra
+    for(let t=0;t<5;t++){
+      det=await faceapi
+        .detectSingleFace(scannerVideo,new faceapi.TinyFaceDetectorOptions({inputSize:192,scoreThreshold:.3}))
+        .withFaceLandmarks(true)
+        .withFaceDescriptor();
+      if(det)break;
+      await new Promise(r=>setTimeout(r,300));
+    }
+    if(!det){
+      setAuthStatus('NO SE DETECTO ROSTRO','Acercate mas a la camara y asegurate de haber buena luz',70,'var(--r)');
+      authRegisterBtn.disabled=false;authRegisterBtn.textContent='REGISTRAR IDENTIDAD';
+      return;
+    }
+    descriptors.push(det.descriptor);
+  }
+
+  // Promediar los 3 descriptores -> descriptor mas robusto
+  const avgDescriptor=new Float32Array(descriptors[0].length);
+  for(let j=0;j<avgDescriptor.length;j++){
+    avgDescriptor[j]=descriptors.reduce((s,d)=>s+d[j],0)/N_SAMPLES;
+  }
+
+  const name=prompt('Tu nombre para JARVIS (o deja en blanco):','Senor')||'Senor';
+  localStorage.setItem('jarvis_face',JSON.stringify({name,descriptor:Array.from(avgDescriptor)}));
+  authRegisterBtn.style.display='none';
+  authRegisterBtn.disabled=false;
+  authRegisterBtn.textContent='REGISTRAR IDENTIDAD';
+  setAuthStatus('IDENTIDAD REGISTRADA','Reconocimiento activado — busqueda iniciando...',97,'var(--g)');
+  setTimeout(()=>startFaceDetection(),800);
+}
+
+function skipAuth(){
+  activateMainUI('Invitado');
 }
 
 function activateMainUI(name){

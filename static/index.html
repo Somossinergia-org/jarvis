@@ -1094,66 +1094,108 @@ function toggleHands(){
   }
 }
 
+// ── Gesture state counters ──────────────────────────────────────
+let openHandFrames=0,fistFrames=0,callFrames=0,vSignFrames=0;
+const HOLD_LAUNCHER=22; // ~1.3s a 60ms/frame
+const HOLD_ACTION=4;    // ~240ms confirmar gesto
+let lastSentX=0,lastSentY=0;
+const DEAD_ZONE=0.006;
+let launcherHoldBar=null;
+
 function drawHandLandmarks(results){
   const ctx=handCanvas.getContext('2d');
   const sw=camVideo.videoWidth||140,sh=camVideo.videoHeight||105;
   handCanvas.width=sw;handCanvas.height=sh;ctx.clearRect(0,0,sw,sh);
+
   if(!results.multiHandLandmarks||!results.multiHandLandmarks[0]){
-    handCursor.style.display='none';window.handGravity.active=false;return;
+    handCursor.style.display='none';window.handGravity.active=false;
+    openHandFrames=0;fistFrames=0;callFrames=0;vSignFrames=0;
+    removeLauncherBar();return;
   }
   const lm=results.multiHandLandmarks[0];
-  // Draw skeleton
+
+  // Skeleton
   const conn=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
   ctx.strokeStyle='#ffaa00';ctx.lineWidth=1.2;ctx.shadowColor='#ffaa00';ctx.shadowBlur=3;
   conn.forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(lm[a].x*sw,lm[a].y*sh);ctx.lineTo(lm[b].x*sw,lm[b].y*sh);ctx.stroke();});
   lm.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x*sw,p.y*sh,i===0?3.5:2,0,Math.PI*2);ctx.fillStyle=[4,8,12,16,20].includes(i)?'#00ff88':'#ffaa00';ctx.fill();});
 
-  // Detect fingers
+  // Fingers
   const tips=[4,8,12,16,20],pips=[3,6,10,14,18];
   const fingers=tips.map((t,i)=>i===0?(lm[t].x<lm[pips[i]].x):(lm[t].y<lm[pips[i]].y));
   const [thumb,index,middle,ring,pinky]=fingers;
   const extCount=fingers.filter(Boolean).length;
 
-  // Map index tip to screen
+  // Smooth cursor (slow, stable)
   const rawX=1-lm[8].x,rawY=lm[8].y;
-  smoothX+=(rawX-smoothX)*.35;smoothY+=(rawY-smoothY)*.35;
+  smoothX+=(rawX-smoothX)*0.18;
+  smoothY+=(rawY-smoothY)*0.18;
   const mX=smoothX*screen.width,mY=smoothY*screen.height;
   const wX=smoothX*window.innerWidth,wY=smoothY*window.innerHeight;
   window.handGravity={x:smoothX,y:smoothY,active:true};
 
   const pinchDist=Math.hypot(lm[4].x-lm[8].x,lm[4].y-lm[8].y);
-  const pinching=pinchDist<0.05;
+  const pinching=pinchDist<0.048;
+  const airMode=index&&!middle&&!ring&&!pinky;
   const vSign=!thumb&&index&&middle&&!ring&&!pinky;
   const openHand=thumb&&index&&middle&&ring&&pinky;
   const fist=extCount===0;
   const callHand=thumb&&!index&&!middle&&!ring&&pinky;
 
-  // Air mouse: only index
-  if(index&&!middle&&!ring&&!pinky&&airMouseEnabled){
+  // AIR MOUSE
+  if(airMode&&airMouseEnabled){
     handCursor.style.display='block';
     handCursor.style.left=wX+'px';handCursor.style.top=wY+'px';
-    if(pinching)handCursor.classList.add('pinch');else handCursor.classList.remove('pinch');
-    sendAir('move',mX,mY);
+    handCursor.classList.toggle('pinch',pinching);
     miniCam.className='mini-cam detecting';
+    const dx=Math.abs(smoothX-lastSentX),dy=Math.abs(smoothY-lastSentY);
+    if(dx>DEAD_ZONE||dy>DEAD_ZONE){sendAir('move',mX,mY);lastSentX=smoothX;lastSentY=smoothY;}
     if(pinching&&!prevPinch){sendAir('click');showGestureBadge('CLICK');}
-  }else if(!pinching){handCursor.style.display='none';}
+  }else if(!airMode){handCursor.style.display='none';}
 
-  if(vSign){const cy=lm[8].y;if(isScrolling){const dy=cy-lastScrollY;if(Math.abs(dy)>.02)sendAir(dy>0?'scroll_down':'scroll_up');}isScrolling=true;lastScrollY=cy;}else{isScrolling=false;}
-  if(openHand){if(!launcherOpen)openLauncher();else checkLauncherHover(wX,wY);miniCam.className='mini-cam verified';}
-  if(fist){const now=Date.now();if(now-lastGestureTime>GESTURE_COOLDOWN){lastGestureTime=now;fetch('/api/system/media',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'play_pause'})});showGestureBadge('PLAY / PAUSA');}}
-  if(callHand){const now=Date.now();if(now-lastGestureTime>GESTURE_COOLDOWN){lastGestureTime=now;toggleVoice();showGestureBadge('MIC');}}
+  // SCROLL (3 frames consecutivos)
+  if(vSign){vSignFrames=Math.min(vSignFrames+1,10);}else{vSignFrames=0;isScrolling=false;}
+  if(vSign&&vSignFrames>=3){
+    const cy=lm[8].y;
+    if(isScrolling){const dy=cy-lastScrollY;if(Math.abs(dy)>0.025)sendAir(dy>0?'scroll_down':'scroll_up');}
+    isScrolling=true;lastScrollY=cy;
+  }
 
-  // Highlight gesture in guide
-  ['gg-air','gg-pinch','gg-scroll','gg-open','gg-fist','gg-call'].forEach(id=>{document.getElementById(id)?.classList.remove('active-g');});
-  if(index&&!middle)document.getElementById('gg-air')?.classList.add('active-g');
-  if(pinching)document.getElementById('gg-pinch')?.classList.add('active-g');
-  if(vSign)document.getElementById('gg-scroll')?.classList.add('active-g');
-  if(openHand)document.getElementById('gg-open')?.classList.add('active-g');
-  if(fist)document.getElementById('gg-fist')?.classList.add('active-g');
-  if(callHand)document.getElementById('gg-call')?.classList.add('active-g');
+  // OPEN HAND → Launcher (mantener 1.3s)
+  if(openHand){
+    openHandFrames++;
+    miniCam.className='mini-cam verified';
+    updateLauncherBar(openHandFrames/HOLD_LAUNCHER);
+    if(openHandFrames===HOLD_LAUNCHER){removeLauncherBar();if(!launcherOpen)openLauncher();}
+    if(launcherOpen)checkLauncherHover(wX,wY);
+  }else{if(openHandFrames>0&&openHandFrames<HOLD_LAUNCHER)removeLauncherBar();openHandFrames=0;}
+
+  // FIST → Play/Pause (4 frames)
+  if(fist){fistFrames++;}else{fistFrames=0;}
+  if(fist&&fistFrames===HOLD_ACTION){const now=Date.now();if(now-lastGestureTime>2000){lastGestureTime=now;fetch('/api/system/media',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'play_pause'})});showGestureBadge('PLAY / PAUSA');}}
+
+  // CALL → Mic (4 frames)
+  if(callHand){callFrames++;}else{callFrames=0;}
+  if(callHand&&callFrames===HOLD_ACTION){const now=Date.now();if(now-lastGestureTime>2000){lastGestureTime=now;toggleVoice();showGestureBadge('MIC');}}
+
+  // Guide highlight
+  const gm={'gg-air':airMode,'gg-pinch':pinching,'gg-scroll':vSign&&vSignFrames>=3,'gg-open':openHand,'gg-fist':fist,'gg-call':callHand};
+  Object.entries(gm).forEach(([id,v])=>document.getElementById(id)?.classList.toggle('active-g',!!v));
 
   prevPinch=pinching;
 }
+
+function updateLauncherBar(pct){
+  if(!launcherHoldBar){
+    launcherHoldBar=document.createElement('div');
+    launcherHoldBar.style.cssText='position:fixed;bottom:56px;left:50%;transform:translateX(-50%);width:180px;height:3px;background:rgba(0,212,255,.1);border-radius:3px;z-index:300;overflow:hidden;';
+    const fill=document.createElement('div');fill.id='lhb-fill';
+    fill.style.cssText='height:100%;background:var(--c);border-radius:3px;width:0%;transition:width .06s linear;';
+    launcherHoldBar.appendChild(fill);document.body.appendChild(launcherHoldBar);
+  }
+  const f=document.getElementById('lhb-fill');if(f)f.style.width=(Math.min(pct,1)*100)+'%';
+}
+function removeLauncherBar(){if(launcherHoldBar){launcherHoldBar.remove();launcherHoldBar=null;}}
 
 // ════════════════════════════════════════════════════════════
 // INIT

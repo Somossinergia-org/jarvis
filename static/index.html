@@ -799,6 +799,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.setSize(window.innerWidth,window.innerHeight);
 
 const scene=new THREE.Scene();
+window._scene=scene;window._cam=cam;
 const cam=new THREE.PerspectiveCamera(58,window.innerWidth/window.innerHeight,0.1,500);
 cam.position.set(0,0,12);
 
@@ -910,6 +911,7 @@ NODES.forEach(nd=>{
 // ── Orbit camera ───────────────────────────────────
 let isDragging=false,prevMx=0,prevMy=0,autoRotate=true;
 const sph={theta:0.55,phi:0.95,r:14};
+window._sph=sph;
 
 function updateCam(){
   cam.position.set(
@@ -1045,9 +1047,16 @@ function setAuthStatus(text,sub,pct,color){
 // ══════════════════════════════════════════════════
 // CAMERA MANAGER — BULLETPROOF, NEVER FAILS
 // ══════════════════════════════════════════════════
-let camRetries = 0;
-let camWatchdog = null;
-const CAM_CONSTRAINTS = [
+// Declare ALL camera variables first (before any function) to avoid TDZ
+var camRetries = 0;
+var camWatchdog = null;
+var CAM_CONSTRAINTS = [
+  {video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false},
+  {video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false},
+  {video:{width:{ideal:320},height:{ideal:240}},audio:false},
+  {video:true, audio:false},
+];
+// (declarations moved to top of camera block)
   // Best quality first
   {video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false},
   // HD fallback
@@ -1094,9 +1103,19 @@ function attachStream(stream) {
     vid.srcObject = stream;
     vid.muted = true;
     vid.playsInline = true;
-    // Force play with retry
-    const tryPlay = () => vid.play().catch(() => setTimeout(tryPlay, 500));
-    tryPlay();
+    vid.autoplay = true;
+    // Ensure play on metadata load
+    vid.onloadedmetadata = () => {
+      vid.play().catch(e => {
+        console.warn('[CAM] play() failed on metadata:', e.name);
+        // Retry after short delay
+        setTimeout(() => vid.play().catch(() => {}), 300);
+      });
+    };
+    // Also try immediately in case metadata is already loaded
+    if (vid.readyState >= 1) {
+      vid.play().catch(() => setTimeout(() => vid.play().catch(() => {}), 500));
+    }
   });
 
   // Monitor stream health — restart if tracks end
@@ -1818,7 +1837,7 @@ let fs3DNodes = [];       // {mesh, particles, label, item}
 let fs3DHovered = null;
 let fsPath3D = '~';
 let fsHistory3D = [];
-const FS_CENTER = new THREE.Vector3(0, 0, 0);
+const FS_CENTER = new window.THREE.Vector3(0, 0, 0);
 
 const FS_NODE_COLORS = {
   dir:    0xffd700,
@@ -1872,7 +1891,7 @@ async function enterFSMode3D(path, pushHistory) {
   fsPath3D = data.path;
 
   // Update HUD
-  const shortPath = data.path.replace(/.*[/\]/, '') || data.path;
+  const shortPath = data.path.replace(/.*[\/\\]/, '') || data.path;
   document.getElementById('fs-hud-path').textContent = data.path;
   document.getElementById('fs-hud-count').textContent =
     data.items.filter(i => i.is_dir).length + '📁 ' +
@@ -1904,7 +1923,7 @@ async function enterFSMode3D(path, pushHistory) {
     const theta = goldenAngle * i;
     const r = isDir ? 4.5 : 3.5;
 
-    const pos = new THREE.Vector3(
+    const pos = new window.THREE.Vector3(
       Math.cos(theta) * radius * r,
       y * r * 0.9,
       Math.sin(theta) * radius * r
@@ -1915,7 +1934,7 @@ async function enterFSMode3D(path, pushHistory) {
     const pSize  = isDir ? 0.07 : 0.04;
     const spread = isDir ? 0.55 : 0.35;
 
-    const geo = new THREE.BufferGeometry();
+    const geo = new window.THREE.BufferGeometry();
     const pos3 = new Float32Array(pCount * 3);
     const col3 = new Float32Array(pCount * 3);
     const r3 = (col >> 16 & 0xff) / 255;
@@ -1930,22 +1949,22 @@ async function enterFSMode3D(path, pushHistory) {
       pos3[j*3+2] = pos.z + rr * Math.cos(b);
       col3[j*3]   = r3; col3[j*3+1] = g3; col3[j*3+2] = b3;
     }
-    geo.setAttribute('position', new THREE.BufferAttribute(pos3, 3));
-    geo.setAttribute('color',    new THREE.BufferAttribute(col3, 3));
+    geo.setAttribute('position', new window.THREE.BufferAttribute(pos3, 3));
+    geo.setAttribute('color',    new window.THREE.BufferAttribute(col3, 3));
 
-    const mat = new THREE.PointsMaterial({
+    const mat = new window.THREE.PointsMaterial({
       size: pSize, vertexColors: true, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
-    const cloud = new THREE.Points(geo, mat);
-    scene.add(cloud);
+    const cloud = new window.THREE.Points(geo, mat);
+    window._scene && window._scene.add(cloud);
 
     // Core sphere
-    const coreGeo = new THREE.SphereGeometry(isDir ? 0.18 : 0.10, 16, 16);
-    const coreMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0 });
-    const core = new THREE.Mesh(coreGeo, coreMat);
+    const coreGeo = new window.THREE.SphereGeometry(isDir ? 0.18 : 0.10, 16, 16);
+    const coreMat = new window.THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0 });
+    const core = new window.THREE.Mesh(coreGeo, coreMat);
     core.position.copy(pos);
-    scene.add(core);
+    window._scene && window._scene.add(core);
 
     // HTML label
     const lbl = document.createElement('div');
@@ -2009,8 +2028,8 @@ function fsGoBack3D() {
 
 function clearFS3DNodes() {
   fs3DNodes.forEach(n => {
-    scene.remove(n.cloud);
-    scene.remove(n.core);
+    window._scene && window._scene.remove(n.cloud);
+    window._scene && window._scene.remove(n.core);
     n.cloud.geometry.dispose();
     n.cloud.material.dispose();
     n.core.geometry.dispose();
@@ -2036,15 +2055,16 @@ function exitFSMode() {
 
 // Helper: smooth camera tween to spherical coords
 function tweenToSph(theta, phi, r, ms) {
-  const start = {theta: sph.theta, phi: sph.phi, r: sph.r};
+  const sphRef=window._sph||sph||{};
+  const start = {theta: sphRef.theta||0.6, phi: sphRef.phi||0.95, r: sphRef.r||13};
   const end = {theta, phi, r};
   const t0 = performance.now();
   function step(now) {
     const t = Math.min((now - t0) / (ms || 600), 1);
     const e = 1 - Math.pow(1 - t, 3);
-    sph.theta = start.theta + (end.theta - start.theta) * e;
-    sph.phi   = start.phi   + (end.phi   - start.phi)   * e;
-    sph.r     = start.r     + (end.r     - start.r)     * e;
+    if(window._sph){window._sph.theta = start.theta + (end.theta - start.theta) * e;
+    window._sph.phi   = start.phi   + (end.phi   - start.phi)   * e;
+    window._sph.r     = start.r     + (end.r     - start.r)     * e;}
     if (t < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
@@ -2054,7 +2074,8 @@ function tweenToSph(theta, phi, r, ms) {
 function updateFS3DLabels() {
   if (!fs3DNodes.length) return;
   fs3DNodes.forEach(n => {
-    const v = n.pos.clone().project(cam);
+    if(!window._cam)return;
+  const v = n.pos.clone().project(window._cam);
     const x = (v.x * 0.5 + 0.5) * window.innerWidth;
     const y = (-v.y * 0.5 + 0.5) * window.innerHeight;
     n.label.style.left = x + 'px';

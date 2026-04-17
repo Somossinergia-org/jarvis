@@ -123,6 +123,60 @@ async def system_info():
     return get_system_info()
 
 
+@app.get("/api/system/extended")
+async def system_extended():
+    """Telemetría completa: CPU, RAM, Disco, Red, Procesos, Uptime, Temp."""
+    import psutil, time, platform
+    try:
+        # Base
+        cpu  = psutil.cpu_percent(interval=0.3)
+        ram  = psutil.virtual_memory().percent
+        disk = psutil.disk_usage("C:\\").percent if platform.system()=="Windows" else psutil.disk_usage("/").percent
+
+        # Network I/O (delta since last call)
+        net = psutil.net_io_counters()
+        def _fmt(b):
+            if b < 1024: return f"{b}B/s"
+            if b < 1048576: return f"{b//1024}KB/s"
+            return f"{b//1048576}MB/s"
+        # Use per-second snapshot (quick 0.3s interval already used for CPU)
+        net2 = psutil.net_io_counters()
+        up_bps = max(0, net2.bytes_sent - net.bytes_sent)
+        dn_bps = max(0, net2.bytes_recv - net.bytes_recv)
+
+        # Processes
+        procs = len(psutil.pids())
+
+        # Uptime
+        boot = psutil.boot_time()
+        up_s = int(time.time() - boot)
+        h, m = divmod(up_s // 60, 60)
+        uptime = f"{h}h {m}m"
+
+        # Temperature (if available)
+        temp = "--"
+        try:
+            temps = psutil.sensors_temperatures()
+            if temps:
+                for k, v in temps.items():
+                    if v:
+                        temp = f"{v[0].current:.0f}°C"
+                        break
+        except Exception:
+            pass
+
+        return {
+            "cpu": cpu, "ram": ram, "disk": disk,
+            "net_up": _fmt(up_bps), "net_dn": _fmt(dn_bps),
+            "procs": procs, "uptime": uptime, "temp": temp,
+            # Also include old keys for compatibility
+            "cpu_uso_porcentaje": cpu, "ram_uso_porcentaje": ram, "disco_uso_porcentaje": disk,
+        }
+    except Exception as e:
+        return {"error": str(e), "cpu": 0, "ram": 0, "disk": 0,
+                "net_up": "--", "net_dn": "--", "procs": 0, "uptime": "--", "temp": "--"}
+
+
 @app.get("/api/datetime")
 async def datetime_info():
     return get_datetime_info()

@@ -112,6 +112,47 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "control_system",
+            "description": (
+                "Controla el sistema operativo Windows. "
+                "Puede abrir o cerrar cualquier aplicaci\u00f3n, ejecutar comandos de PowerShell, "
+                "controlar el volumen del sistema, controlar la reproducci\u00f3n multimedia (Spotify, etc.), "
+                "tomar capturas de pantalla, escribir texto, pulsar teclas y abrir URLs en el navegador. "
+                "\u00dasa esta herramienta cuando el usuario pida abrir Chrome, Spotify, Word, "
+                "subir/bajar volumen, pausa/siguiente canci\u00f3n, hacer una captura, etc."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "open_app", "close_app", "open_url",
+                            "run_command",
+                            "volume_up", "volume_down", "volume_mute",
+                            "media_play_pause", "media_next", "media_previous", "media_stop",
+                            "screenshot",
+                            "type_text", "press_key",
+                            "list_apps",
+                        ],
+                        "description": "Acci\u00f3n a ejecutar",
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Argumento: nombre de app, URL, comando PowerShell, texto a escribir o tecla a pulsar",
+                    },
+                    "level": {
+                        "type": "integer",
+                        "description": "Nivel de volumen 0-100 (solo para volume_set)",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
 
 
@@ -241,8 +282,53 @@ async def _execute_tool(name: str, args: dict) -> dict:
                 "mensaje": f"Borrador creado para {args.get('to')} — listo para revisar y enviar.",
             }
 
+        case "control_system":
+            from plugins.system_plugin import (
+                open_application, close_application, open_url, execute_command,
+                control_volume, control_media, take_screenshot,
+                type_text_at_cursor, press_key, list_running_apps,
+            )
+            action = args.get("action", "")
+            target = args.get("target", "")
+            level  = args.get("level")
+
+            match action:
+                case "open_app":
+                    return open_application(target)
+                case "close_app":
+                    return close_application(target)
+                case "open_url":
+                    return open_url(target)
+                case "run_command":
+                    return execute_command(target)
+                case "volume_up":
+                    return control_volume("up")
+                case "volume_down":
+                    return control_volume("down")
+                case "volume_mute":
+                    return control_volume("mute")
+                case "media_play_pause":
+                    return control_media("play_pause")
+                case "media_next":
+                    return control_media("next")
+                case "media_previous":
+                    return control_media("previous")
+                case "media_stop":
+                    return control_media("stop")
+                case "screenshot":
+                    return await asyncio.to_thread(take_screenshot, target or None)
+                case "type_text":
+                    return await asyncio.to_thread(type_text_at_cursor, target)
+                case "press_key":
+                    return await asyncio.to_thread(press_key, target)
+                case "list_apps":
+                    return list_running_apps()
+                case _:
+                    return {"error": f"Acción de sistema desconocida: {action}"}
+
         case _:
             return {"error": f"Herramienta '{name}' no encontrada"}
+
 
 
 # ── Clase principal ────────────────────────────────────────────────────
@@ -296,9 +382,9 @@ class JarvisBrain:
                     messages=messages,
                     tools=TOOLS,
                     tool_choice="auto",
-                    max_tokens=2048,
-                    temperature=0.7,
+                    max_completion_tokens=2048,
                 )
+
                 msg = response.choices[0].message
 
                 # Si no hay tool calls → respuesta final
@@ -328,8 +414,7 @@ class JarvisBrain:
                 client.chat.completions.create,
                 model=GPT_MODEL,
                 messages=messages,
-                max_tokens=2048,
-                temperature=0.7,
+                max_completion_tokens=2048,
             )
             assistant_message = response.choices[0].message.content or "No he podido generar respuesta."
             self.conversation_history.append({"role": "assistant", "content": assistant_message})

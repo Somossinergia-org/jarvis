@@ -1,4 +1,4 @@
-"""Servidor principal de JARVIS v4.0 ULTRA."""
+﻿"""Servidor principal de JARVIS v4.0 ULTRA."""
 import os
 import sys
 import asyncio
@@ -135,7 +135,26 @@ async def sys_volume(req: dict):
 
 @app.post("/api/system/media")
 async def sys_media(req: dict):
-    return control_media(req.get("action", "play_pause"))
+    action = req.get("action", "play_pause")
+    result = control_media(action)
+    if action == "play_pause":
+        try:
+            import subprocess
+            subprocess.Popen(
+                ["powershell", "-WindowStyle", "Hidden", "-Command",
+                 "$spotify = Get-Process -Name Spotify -ErrorAction SilentlyContinue; "
+                 "if ($spotify) { "
+                 "  Add-Type -AssemblyName Microsoft.VisualBasic; "
+                 "  [Microsoft.VisualBasic.Interaction]::AppActivate($spotify.Id); "
+                 "  Start-Sleep -Milliseconds 300; "
+                 "  $s = New-Object -ComObject WScript.Shell; "
+                 "  $s.SendKeys(' '); "
+                 "}"],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        except Exception:
+            pass
+    return result
 
 @app.post("/api/system/mouse")
 async def sys_mouse(req: MouseAction):

@@ -724,9 +724,16 @@ function onIdentityVerified(name){
   // Speak
   speak(`Identidad verificada. Bienvenido de nuevo, ${name}. Todos los sistemas están en línea.`);
 
-  // Launch apps
+  // Launch apps + play automatico
   setTimeout(()=>{
     APPS_ON_AUTH.forEach((app,i)=>setTimeout(()=>launchApp(app),i*600));
+    // Si spotify esta en la lista, enviar play 3s despues de que abra
+    if(APPS_ON_AUTH.includes('spotify')){
+      const spotifyDelay=APPS_ON_AUTH.indexOf('spotify')*600+3000;
+      setTimeout(()=>{
+        fetch('/api/system/media',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'play_pause'})});
+      },spotifyDelay);
+    }
   },800);
 
   // Show toast

@@ -1,4 +1,4 @@
-﻿"""Servidor principal de JARVIS v4.0 ULTRA."""
+"""Servidor principal de JARVIS v4.0 ULTRA."""
 import os
 import sys
 import asyncio
@@ -251,27 +251,87 @@ async def launch_path(req: dict):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+
+
 @app.post("/api/auth/startup")
 async def auth_startup():
-    import asyncio, subprocess
+    """Startup biometrico: Spotify play via VK_MEDIA_PLAY_PAUSE + VS Code."""
+    import asyncio, ctypes, time as _t
+
     async def _run():
+        # 1. Abrir Spotify
         open_application("spotify")
-        await asyncio.sleep(2.2)
-        ps = '=New-Object -ComObject WScript.Shell;.AppActivate(\"Spotify\")|Out-Null;Start-Sleep -m 350;.SendKeys(\" \")'
-        for _ in range(2):
-            try: subprocess.run(["powershell","-NoProfile","-c",ps],timeout=6,capture_output=True)
-            except: pass
-            await asyncio.sleep(1.8)
+        await asyncio.sleep(2.0)
+        # 2. Play global via media key (sin necesitar foco en Spotify)
         try:
-            subprocess.run(["powershell","-NoProfile","-c",
-                '=Get-Process spotify -EA 0|?{.MainWindowTitle}|Select -First 1;if(){(New-Object -ComObject Shell.Application).MinimizeAll()}'],
-                timeout=8,capture_output=True)
-        except: pass
-        await asyncio.sleep(0.5)
+            u32 = ctypes.windll.user32
+            u32.keybd_event(0xB3, 0, 0, 0)   # VK_MEDIA_PLAY_PAUSE down
+            _t.sleep(0.08)
+            u32.keybd_event(0xB3, 0, 2, 0)   # key up
+            print("[Startup] PLAY via media key: OK")
+        except Exception as ex:
+            print(f"[Startup] media key: {ex}")
+        # 3. VS Code
+        await asyncio.sleep(0.6)
         open_application("code")
-        print("[Startup] OK")
+        print("[Startup] Secuencia OK")
+
     asyncio.create_task(_run())
-    return {"message":"OK"}
+    return {"message": "OK"}
+
+
+@app.get("/api/files/list")
+async def list_files(path: str = "~"):
+    """Lista el contenido real de cualquier directorio del sistema."""
+    import pathlib as pl
+    try:
+        clean = path.replace("/", chr(92))
+        p = pl.Path(clean).expanduser().resolve()
+        if not p.exists():
+            return JSONResponse({"error": f"No existe: {p}"}, status_code=404)
+        items = []
+        try:
+            for item in sorted(p.iterdir(),
+                               key=lambda x: (not x.is_dir(), x.name.lower())):
+                try:
+                    st = item.stat()
+                    items.append({
+                        "name":   item.name,
+                        "path":   str(item).replace(chr(92), "/"),
+                        "is_dir": item.is_dir(),
+                        "size":   st.st_size if item.is_file() else None,
+                    })
+                except (PermissionError, OSError):
+                    pass
+        except PermissionError:
+            return JSONResponse({"error": "Sin permisos"}, status_code=403)
+        return {
+            "path":   str(p).replace(chr(92), "/"),
+            "parent": str(p.parent).replace(chr(92), "/"),
+            "name":   p.name or str(p),
+            "items":  items[:150],
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/files/open")
+async def open_file_ep(req: dict):
+    """Abre archivo o carpeta con la app predeterminada de Windows."""
+    import subprocess, pathlib as pl, os
+    raw = req.get("path", "").replace("/", chr(92))
+    try:
+        p = pl.Path(raw).resolve()
+        if not p.exists():
+            return JSONResponse({"error": "No existe"}, status_code=404)
+        if p.is_dir():
+            subprocess.Popen(["explorer", str(p)])
+        else:
+            os.startfile(str(p))
+        return {"message": f"Abriendo: {p.name}"}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.get("/api/voices")
 async def voices():
     return await list_spanish_voices()

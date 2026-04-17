@@ -381,6 +381,24 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
 #notif.show{display:block;}
 #notif-text{font-size:12px;color:var(--tx);}
 #notif-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;margin-bottom:5px;}
+
+/* ── HOLOGRAPHIC FILE BROWSER ─── */
+.fb-panel-box{width:min(960px,95vw);max-height:90vh;}
+#fb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;max-height:48vh;overflow-y:auto;padding:4px 2px;scrollbar-width:thin;scrollbar-color:rgba(0,212,255,.1) transparent;}
+#fb-grid::-webkit-scrollbar{width:4px;} #fb-grid::-webkit-scrollbar-thumb{background:rgba(0,212,255,.15);border-radius:2px;}
+.fb-card{padding:14px 8px 11px;border-radius:12px;text-align:center;cursor:pointer;background:rgba(0,8,20,.9);border:1px solid rgba(0,212,255,.08);transition:all .18s ease;position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;user-select:none;}
+.fb-card:hover{transform:translateY(-3px) scale(1.04);}
+.fb-card::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.025),transparent);border-radius:12px;pointer-events:none;}
+.fb-icon{font-size:28px;margin-bottom:7px;line-height:1;filter:drop-shadow(0 0 6px currentColor);}
+.fb-name{font-family:'Rajdhani',sans-serif;font-size:10px;font-weight:600;word-break:break-word;line-height:1.3;margin-bottom:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;max-width:100%;}
+.fb-sz{font-family:'Share Tech Mono',monospace;font-size:7px;opacity:.45;letter-spacing:.5px;}
+.fb-bc-sep{color:var(--txd);margin:0 3px;}
+.fb-bc-part{cursor:pointer;color:var(--c);font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:1px;transition:color .15s;}
+.fb-bc-part:hover{color:#fff;}
+.fb-quick{padding:5px 10px;font-size:10px;width:auto;flex-shrink:0;}
+.fb-depth-layer{display:flex;align-items:center;gap:3px;font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--txd);letter-spacing:1px;}
+.fb-depth-seg{width:20px;height:2px;border-radius:1px;background:rgba(0,212,255,.15);}
+.fb-depth-seg.active{background:var(--c);}
 </style>
 </head>
 <body>
@@ -596,32 +614,48 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
     </div>
   </div>
 
-  <!-- ARCHIVOS -->
+  <!-- ARCHIVOS — HOLOGRAPHIC FILE BROWSER -->
+    <!-- ARCHIVOS — HOLOGRAPHIC FILE BROWSER -->
   <div class="node-panel" id="panel-files">
-    <div class="np-box">
+    <div class="np-box fb-panel-box">
       <div class="np-inner">
+        <!-- Header -->
         <div class="np-hdr" style="border-color:rgba(255,215,0,.15);">
           <div class="np-hicon">📁</div>
-          <div class="np-htitle" style="color:#ffd700;">ARCHIVOS DEL SISTEMA</div>
-          <button class="np-hback" onclick="flyBack()">← CEREBRO</button>
+          <div class="np-htitle" style="color:#ffd700;">SISTEMA DE ARCHIVOS</div>
+          <div id="fb-depth-wrap" class="fb-depth-layer"></div>
+          <div style="flex:1;"></div>
+          <button class="np-hback" id="fb-back-btn" onclick="fbGoBack()" disabled style="opacity:.4;">← ATRÁS</button>
+          <button class="np-hback" onclick="flyBack()" style="margin-left:6px;">⬡ CEREBRO</button>
           <button class="np-hclose" onclick="flyBack()">✕</button>
         </div>
-        <div class="np-section">
-          <div class="np-slabel" style="color:#ffd700;">CARPETAS PRINCIPALES</div>
-          <div class="np-grid">
-            <button class="npbtn" style="border-color:rgba(255,215,0,.2);color:var(--gold);" onclick="openPath('Desktop')"><div class="bi">🖥️</div><div class="bl">Escritorio<span class="bsub">Desktop</span></div></button>
-            <button class="npbtn" style="border-color:rgba(255,215,0,.2);color:var(--gold);" onclick="openPath('Downloads')"><div class="bi">⬇️</div><div class="bl">Descargas<span class="bsub">Downloads</span></div></button>
-            <button class="npbtn" style="border-color:rgba(255,215,0,.2);color:var(--gold);" onclick="openPath('Documents')"><div class="bi">📄</div><div class="bl">Documentos<span class="bsub">Documents</span></div></button>
-            <button class="npbtn" style="border-color:rgba(255,215,0,.2);color:var(--gold);" onclick="openPath('Pictures')"><div class="bi">🖼️</div><div class="bl">Imágenes<span class="bsub">Pictures</span></div></button>
-          </div>
+
+        <!-- Path bar + breadcrumb -->
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <button onclick="fbGoUp()" class="npbtn fb-quick" title="Subir un nivel">⬆ SUBIR</button>
+          <div id="fb-breadcrumb" style="flex:1;display:flex;align-items:center;flex-wrap:wrap;gap:2px;padding:7px 12px;background:rgba(0,212,255,.04);border:1px solid rgba(0,212,255,.1);border-radius:8px;min-height:34px;"></div>
+          <button onclick="fbRefresh()" class="npbtn fb-quick" title="Actualizar">↺</button>
         </div>
-        <div class="np-section">
-          <div class="np-slabel" style="color:#ffd700;">ACCIONES CON IA</div>
-          <div class="np-grid">
-            <button class="npbtn" onclick="launchApp('explorer')"><div class="bi">📂</div><div class="bl">Explorador Windows<span class="bsub">Navegación completa</span></div></button>
-            <button class="npbtn" onclick="askJarvis('¿qué archivos hay en el escritorio?')"><div class="bi">🔍</div><div class="bl">Buscar archivos<span class="bsub">Búsqueda IA</span></div></button>
-          </div>
+
+        <!-- Quick access drives / folders -->
+        <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+          <button onclick="fbLoad('~')"              class="npbtn fb-quick">🏠 Inicio</button>
+          <button onclick="fbLoad('~/Desktop')"      class="npbtn fb-quick">🖥️ Escritorio</button>
+          <button onclick="fbLoad('~/Downloads')"    class="npbtn fb-quick">⬇️ Descargas</button>
+          <button onclick="fbLoad('~/Documents')"    class="npbtn fb-quick">📄 Documentos</button>
+          <button onclick="fbLoad('~/Pictures')"     class="npbtn fb-quick">🖼️ Imágenes</button>
+          <button onclick="fbLoad('~/Music')"        class="npbtn fb-quick">🎵 Música</button>
+          <button onclick="fbLoad('C:/')"            class="npbtn fb-quick">💾 C:\</button>
+          <button onclick="fbLoad('D:/')"            class="npbtn fb-quick" id="fb-d-btn">📀 D:\</button>
         </div>
+
+        <!-- File grid -->
+        <div id="fb-grid">
+          <div style="color:var(--txd);font-size:11px;text-align:center;grid-column:1/-1;padding:30px;font-family:Share Tech Mono,monospace;letter-spacing:2px;">⟳ CARGANDO SISTEMA...</div>
+        </div>
+
+        <!-- Status bar -->
+        <div id="fb-status" style="margin-top:10px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;padding:8px 12px;background:rgba(0,0,0,.4);border-radius:8px;font-family:Share Tech Mono,monospace;font-size:8px;color:var(--txd);letter-spacing:1px;border:1px solid rgba(0,212,255,.05);"></div>
       </div>
     </div>
   </div>
@@ -895,6 +929,8 @@ function flyToNode(nd){
   closeAllPanels();
   document.getElementById('btn-back').style.display='flex';
   if(nd.id==='memory')loadMemory();
+    if(nd.id==='files'){fbHistory=[];fbDepth=0;setTimeout(()=>fbLoad('~',false),200);}
+    if(nd.id==='files'){fbHistory=[];fbDepth=0;setTimeout(()=>fbLoad('~',false),200);}
   if(nd.id==='system')refreshSysPanel();
   const endPos=nd.pos.clone().add(new THREE.Vector3(0,0,3.5));
   flyAnim={sp:cam.position.clone(),ep:endPos,sl:new THREE.Vector3(0,0,0),el:nd.pos.clone(),t:0,dur:80,onEnd:()=>openNodePanel(nd)};
@@ -1426,6 +1462,152 @@ document.addEventListener('keydown',e=>{
 // ══════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════
+// HOLOGRAPHIC FILE BROWSER — Sistema de Archivos 3D
+// ══════════════════════════════════════════════════════
+const FB_ICONS = {
+  dir:'📁',
+  '.js':'⚡','.ts':'⚡','.jsx':'⚡','.tsx':'⚡','.vue':'⚡',
+  '.py':'🐍','.rb':'💎','.php':'🐘','.go':'🐹','.rs':'🦀','.java':'☕','.cs':'🔷','.cpp':'🔩',
+  '.html':'🌐','.css':'🎨','.scss':'🎨',
+  '.json':'📋','.xml':'📋','.yaml':'📋','.yml':'📋','.toml':'📋','.env':'🔑',
+  '.txt':'📝','.md':'📝','.log':'📋','.csv':'📊',
+  '.pdf':'📕','.doc':'📘','.docx':'📘','.odt':'📘',
+  '.xls':'📊','.xlsx':'📊','.ppt':'📊','.pptx':'📊',
+  '.jpg':'🖼️','.jpeg':'🖼️','.png':'🖼️','.gif':'🖼️','.svg':'🖼️','.webp':'🖼️','.ico':'🖼️','.bmp':'🖼️',
+  '.mp3':'🎵','.wav':'🎵','.flac':'🎵','.aac':'🎵','.ogg':'🎵','.m4a':'🎵',
+  '.mp4':'🎬','.mkv':'🎬','.avi':'🎬','.mov':'🎬','.wmv':'🎬','.webm':'🎬',
+  '.zip':'📦','.rar':'📦','.z7':'📦','.tar':'📦','.gz':'📦','.bz2':'📦',
+  '.exe':'⚙️','.msi':'⚙️','.app':'⚙️','.bat':'⚡','.cmd':'⚡','.ps1':'⚡','.sh':'⚡',
+  '.dll':'🔧','.so':'🔧',
+  default:'📄',
+};
+const FB_COLORS = {
+  dir:'#ffd700',code:'#00ff88',img:'#9955ff',audio:'#00d4ff',
+  video:'#ffb300',archive:'#ff9955',exec:'#ff3355',doc:'#88aaff',default:'#5588aa',
+};
+let fbHistory=[],fbCurrent='~',fbDepth=0;
+
+function fbGetIcon(item){
+  if(item.is_dir)return FB_ICONS.dir;
+  const ext='.'+item.name.split('.').pop().toLowerCase();
+  return FB_ICONS[ext]||FB_ICONS.default;
+}
+function fbGetColor(item){
+  if(item.is_dir)return FB_COLORS.dir;
+  const ext='.'+item.name.split('.').pop().toLowerCase();
+  if(['.js','.ts','.jsx','.tsx','.py','.rb','.go','.rs','.java','.cs','.cpp','.html','.css','.json','.yaml','.sh','.bat','.ps1','.vue'].includes(ext))return FB_COLORS.code;
+  if(['.jpg','.jpeg','.png','.gif','.svg','.webp','.bmp','.ico'].includes(ext))return FB_COLORS.img;
+  if(['.mp3','.wav','.flac','.aac','.ogg','.m4a'].includes(ext))return FB_COLORS.audio;
+  if(['.mp4','.mkv','.avi','.mov','.wmv','.webm'].includes(ext))return FB_COLORS.video;
+  if(['.zip','.rar','.7z','.tar','.gz','.bz2'].includes(ext))return FB_COLORS.archive;
+  if(['.exe','.msi','.dll','.bat','.cmd'].includes(ext))return FB_COLORS.exec;
+  if(['.txt','.md','.pdf','.doc','.docx','.xls','.xlsx'].includes(ext))return FB_COLORS.doc;
+  return FB_COLORS.default;
+}
+function fbFmtSize(b){
+  if(!b&&b!==0)return '';
+  if(b<1024)return b+'B';
+  if(b<1048576)return(b/1024).toFixed(1)+'KB';
+  if(b<1073741824)return(b/1048576).toFixed(1)+'MB';
+  return(b/1073741824).toFixed(2)+'GB';
+}
+
+async function fbLoad(path,push){
+  if(push===undefined)push=true;
+  const grid=document.getElementById('fb-grid');
+  const status=document.getElementById('fb-status');
+  if(!grid)return;
+  grid.innerHTML='<div style="color:var(--txd);font-size:10px;text-align:center;grid-column:1/-1;padding:30px;font-family:Share Tech Mono,monospace;letter-spacing:2px;">⟳ ESCANEANDO...</div>';
+  try{
+    const r=await fetch('/api/files/list?path='+encodeURIComponent(path));
+    const d=await r.json();
+    if(d.error){
+      grid.innerHTML='<div style="color:var(--r);padding:30px;text-align:center;grid-column:1/-1;font-size:10px;">⚠ '+d.error+'</div>';
+      return;
+    }
+    if(push&&fbCurrent!==d.path){fbHistory.push(fbCurrent);fbDepth++;}
+    fbCurrent=d.path;
+    fbUpdateBreadcrumb(d.path);
+    fbUpdateDepth();
+    const bb=document.getElementById('fb-back-btn');
+    if(bb){bb.disabled=!fbHistory.length;bb.style.opacity=fbHistory.length?'1':'0.35';}
+    const items=d.items||[];
+    const dirs=items.filter(i=>i.is_dir);
+    const files=items.filter(i=>!i.is_dir);
+    grid.innerHTML='';
+    [...dirs,...files].forEach(item=>{
+      const color=fbGetColor(item);
+      const card=document.createElement('div');
+      card.className='fb-card';
+      card.style.borderColor=color+'18';
+      card.innerHTML=
+        '<div class="fb-icon" style="color:'+color+';">'+fbGetIcon(item)+'</div>'+
+        '<div class="fb-name" style="color:'+color+';">'+item.name+'</div>'+
+        (!item.is_dir&&item.size?'<div class="fb-sz">'+fbFmtSize(item.size)+'</div>':'')+
+        '<div style="position:absolute;inset:0;background:linear-gradient(135deg,'+color+'06,transparent);border-radius:12px;"></div>';
+      card.addEventListener('mouseenter',()=>{
+        card.style.borderColor=color;
+        card.style.background='rgba(0,20,40,.98)';
+        card.style.boxShadow='0 8px 28px '+color+'25,inset 0 0 20px '+color+'06';
+      });
+      card.addEventListener('mouseleave',()=>{
+        card.style.borderColor=color+'18';
+        card.style.background='rgba(0,8,20,.9)';
+        card.style.boxShadow='none';
+      });
+      card.onclick=()=>{
+        if(item.is_dir){card.style.transform='scale(.95)';setTimeout(()=>fbLoad(item.path,true),180);}
+        else fbOpenFile(item.path,item.name);
+      };
+      grid.appendChild(card);
+    });
+    if(!items.length)grid.innerHTML='<div style="color:var(--txd);font-size:10px;text-align:center;grid-column:1/-1;padding:30px;font-family:Share Tech Mono,monospace;">DIRECTORIO VACÍO</div>';
+    if(status){
+      const tot=files.reduce((s,f)=>s+(f.size||0),0);
+      status.innerHTML='<span style="color:var(--gold);">📁 '+dirs.length+' carpetas</span><span style="color:var(--c);">📄 '+files.length+' archivos · '+fbFmtSize(tot)+'</span><span style="opacity:.4;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+d.path+'</span>';
+    }
+    showGBadge('📁 '+d.name);
+  }catch(e){
+    grid.innerHTML='<div style="color:var(--r);padding:30px;text-align:center;grid-column:1/-1;">Error: '+e+'</div>';
+  }
+}
+
+function fbUpdateBreadcrumb(path){
+  const bc=document.getElementById('fb-breadcrumb');
+  if(!bc)return;
+  const parts=path.replace(/\\/g,'/').split('/').filter(p=>p);
+  let cum='';
+  bc.innerHTML=parts.map((p,i)=>{
+    cum=cum?(cum+'/'+p):(path.match(/^[A-Za-z]:/)?p+'\':'/'+p);
+    const cp=cum;
+    return '<span class="fb-bc-part" onclick="fbLoad(''+cp.replace(/\/g,'\\').replace(/'/g,"\'")+'')" > '+p+' </span><span class="fb-bc-sep">›</span>';
+  }).join('')||'<span style="color:var(--txd);font-size:9px;font-family:Share Tech Mono,monospace;">RAÍZ</span>';
+}
+
+function fbUpdateDepth(){
+  const dw=document.getElementById('fb-depth-wrap');
+  if(!dw)return;
+  let html='';
+  const max=Math.min(fbHistory.length+1,8);
+  for(let i=0;i<max;i++)html+='<div class="fb-depth-seg'+(i===fbHistory.length?' active':'')+'"></div>';
+  dw.innerHTML=html+'<span style="margin-left:4px;font-size:8px;color:'+(fbHistory.length?'var(--c)':'var(--txd)')+';">L'+fbHistory.length+'</span>';
+}
+function fbGoBack(){if(!fbHistory.length)return;const p=fbHistory.pop();if(fbDepth>0)fbDepth--;fbLoad(p,false);}
+function fbGoUp(){fetch('/api/files/list?path='+encodeURIComponent(fbCurrent)).then(r=>r.json()).then(d=>{if(d.parent&&d.parent!==d.path)fbLoad(d.parent,true);});}
+function fbGoHome(){fbHistory=[];fbDepth=0;fbLoad('~',false);}
+function fbRefresh(){fbLoad(fbCurrent,false);}
+async function fbOpenFile(path,name){
+  try{
+    const r=await fetch('/api/files/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+    const d=await r.json();
+    if(d.error)showNotif('ERROR',d.error,'var(--r)');
+    else showGBadge('📂 '+(name||path));
+  }catch(e){showNotif('ERROR',''+e,'var(--r)');}
+}
+// END FILE BROWSER
+
 startAuth();
 setInterval(updateSysStats,7000);
 </script>

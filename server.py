@@ -250,6 +250,57 @@ async def launch_path(req: dict):
         return {"message": f"Abriendo {folder}"}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/auth/startup")
+async def auth_startup():
+    """Secuencia completa de arranque tras autenticacion biometrica."""
+    import asyncio, subprocess
+
+    async def _run():
+        # 1. Abrir Spotify minimizado al fondo
+        open_application("spotify")
+        await asyncio.sleep(4.5)
+
+        # 2. Dar play en Spotify
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-c",
+                 "$wshell = New-Object -comobject wscript.shell; "
+                 "$wshell.AppActivate('Spotify') | Out-Null; "
+                 "Start-Sleep -Milliseconds 400; "
+                 "$wshell.SendKeys(' ')"],
+                timeout=8, capture_output=True
+            )
+        except Exception as e:
+            print(f"[Startup] Play Spotify error: {e}")
+
+        await asyncio.sleep(2.5)
+
+        # 3. Minimizar Spotify (enviar Win+Down dos veces)
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-c",
+                 "Add-Type -TypeDefinition '"
+                 "using System; using System.Runtime.InteropServices;"
+                 "public class Win32 {"
+                 " [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int s);"
+                 " [DllImport(\"user32.dll\")] public static extern IntPtr FindWindow(string c, string t);"
+                 "}'; "
+                 "$p = Get-Process -Name spotify -ErrorAction SilentlyContinue | "
+                 "Where-Object {$_.MainWindowTitle -ne ''} | Select-Object -First 1; "
+                 "if ($p) { [Win32]::ShowWindow($p.MainWindowHandle, 6) | Out-Null }"],
+                timeout=10, capture_output=True
+            )
+        except Exception as e:
+            print(f"[Startup] Minimize Spotify error: {e}")
+
+        await asyncio.sleep(0.5)
+
+        # 4. Abrir VS Code (en monitor disponible)
+        open_application("code")
+
+    asyncio.create_task(_run())
+    return {"message": "Startup sequence iniciado"}
 @app.get("/api/voices")
 async def voices():
     return await list_spanish_voices()

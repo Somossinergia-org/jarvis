@@ -27,8 +27,18 @@ from plugins.productivity_plugin import (
     add_task, list_tasks, complete_task, delete_task,
     add_note, list_notes, search_notes,
 )
+from plugins.vault_plugin import (
+    init_vault, create_note, get_note, update_note, delete_note,
+    list_notes as vault_list, search_notes as vault_search,
+    get_graph, get_daily_note, reindex_vault, get_stats as vault_stats,
+)
 
 jarvis = JarvisBrain()
+
+# Inicializar bóveda al arrancar
+_vault_path = init_vault()
+print(f"  [Vault] Bóveda activa: {_vault_path}")
+
 
 
 @asynccontextmanager
@@ -433,6 +443,59 @@ async def get_notes():
 @app.get("/api/notes/search")
 async def find_notes(q: str):
     return search_notes(q)
+
+
+# ══════════════════════════════════════════════════════
+# VAULT — Sistema de Conocimiento Personal JARVIS
+# ══════════════════════════════════════════════════════
+class VaultNoteReq(BaseModel):
+    title: str
+    content: str = ""
+    folder: str = "notas"
+    tags: list = []
+
+class VaultUpdateReq(BaseModel):
+    content: str
+
+@app.get("/api/vault/stats")
+async def vault_stats_ep():
+    return vault_stats()
+
+@app.get("/api/vault/graph")
+async def vault_graph():
+    return get_graph()
+
+@app.get("/api/vault/notes")
+async def vault_notes(folder: str = None):
+    return vault_list(folder)
+
+@app.get("/api/vault/note/{title:path}")
+async def vault_get(title: str):
+    return get_note(title)
+
+@app.post("/api/vault/note")
+async def vault_create(req: VaultNoteReq):
+    return create_note(req.title, req.content, req.folder, req.tags)
+
+@app.put("/api/vault/note/{title:path}")
+async def vault_update(title: str, req: VaultUpdateReq):
+    return update_note(title, req.content)
+
+@app.delete("/api/vault/note/{title:path}")
+async def vault_delete(title: str):
+    return delete_note(title)
+
+@app.get("/api/vault/search")
+async def vault_search_ep(q: str):
+    return vault_search(q)
+
+@app.get("/api/vault/daily")
+async def vault_daily():
+    return get_daily_note()
+
+@app.post("/api/vault/reindex")
+async def vault_reindex():
+    return reindex_vault()
 
 
 # -- Arranque ---

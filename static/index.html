@@ -930,7 +930,7 @@ function flyToNode(nd){
   document.getElementById('btn-back').style.display='flex';
   if(nd.id==='memory')loadMemory();
     if(nd.id==='files'){fbHistory=[];fbDepth=0;setTimeout(()=>fbLoad('~',false),200);}
-    if(nd.id==='files'){fbHistory=[];fbDepth=0;setTimeout(()=>fbLoad('~',false),200);}
+
   if(nd.id==='system')refreshSysPanel();
   const endPos=nd.pos.clone().add(new THREE.Vector3(0,0,3.5));
   flyAnim={sp:cam.position.clone(),ep:endPos,sl:new THREE.Vector3(0,0,0),el:nd.pos.clone(),t:0,dur:80,onEnd:()=>openNodePanel(nd)};
@@ -1580,10 +1580,12 @@ function fbUpdateBreadcrumb(path){
   const parts=path.replace(/\\/g,'/').split('/').filter(p=>p);
   let cum='';
   bc.innerHTML=parts.map((p,i)=>{
-    cum=cum?(cum+'/'+p):(path.match(/^[A-Za-z]:/)?p+'\':'/'+p);
+    if(i===0 && /^[A-Za-z]:/.test(path)) cum=p+'\\';
+    else cum=cum?(cum+'/'+p):('/'+p);
     const cp=cum;
-    return '<span class="fb-bc-part" onclick="fbLoad(''+cp.replace(/\/g,'\\').replace(/'/g,"\'")+'')" > '+p+' </span><span class="fb-bc-sep">›</span>';
-  }).join('')||'<span style="color:var(--txd);font-size:9px;font-family:Share Tech Mono,monospace;">RAÍZ</span>';
+    const safe=cp.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return '<span class="fb-bc-part" onclick="fbLoad(\''+safe+'\')" >'+p+'</span><span class="fb-bc-sep">›</span>';
+  }).join('')||'<span style="color:var(--txd);font-size:9px;">RAÍZ</span>';
 }
 
 function fbUpdateDepth(){

@@ -1,7 +1,6 @@
-"""Servidor principal de JARVIS v4.0 ULTRA."""
+"""Servidor principal de JARVIS v5.0."""
 import os
 import sys
-import asyncio
 import json
 
 # UTF-8 para emojis en Windows
@@ -11,8 +10,8 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -25,7 +24,9 @@ from plugins.system_plugin import (
 )
 from plugins.productivity_plugin import (
     add_task, list_tasks, complete_task, delete_task,
-    add_note as prod_add_note, list_notes as prod_list_notes, search_notes as prod_search_notes,
+    add_note as prod_add_note,
+    list_notes as prod_list_notes,
+    search_notes as prod_search_notes,
 )
 from plugins.vault_plugin import (
     init_vault,
@@ -436,18 +437,18 @@ async def remove_task(task_id: int):
     return {"message": delete_task(task_id)}
 
 
-# -- Notas ---
+# -- Notas simples (productivity) ---
 @app.post("/api/notes")
-async def create_note(req: NoteRequest):
-    return add_note(req.title, req.content)
+async def create_simple_note(req: NoteRequest):
+    return prod_add_note(req.title, req.content)
 
 @app.get("/api/notes")
-async def get_notes():
-    return list_notes()
+async def get_simple_notes():
+    return prod_list_notes()
 
 @app.get("/api/notes/search")
-async def find_notes(q: str):
-    return search_notes(q)
+async def find_simple_notes(q: str):
+    return prod_search_notes(q)
 
 
 # ══════════════════════════════════════════════════════

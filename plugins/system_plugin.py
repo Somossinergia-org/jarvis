@@ -2,7 +2,6 @@
 plugins/system_plugin.py — Control TOTAL del sistema Windows para JARVIS v4.0
 """
 import os
-import sys
 import platform
 import subprocess
 import psutil
@@ -215,7 +214,7 @@ $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.CopyFromScreen(0,0,0,0,$bmp.Size)
 $bmp.Save('{path}')
 """
-        result = subprocess.run(["powershell", "-Command", ps], capture_output=True, timeout=10)
+        subprocess.run(["powershell", "-Command", ps], capture_output=True, timeout=10)
         if os.path.exists(path):
             return {"status": "ok", "mensaje": f"Captura guardada: {path}", "ruta": path}
         return {"error": "No se pudo tomar la captura"}

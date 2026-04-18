@@ -233,10 +233,9 @@ async def _execute_tool(name: str, args: dict) -> dict:
     """Enruta la llamada a la herramienta correcta."""
     from plugins.system_plugin import get_system_info, get_datetime_info
     from plugins.productivity_plugin import (
-        add_task, list_tasks, complete_task, delete_task,
+        add_task, list_tasks, complete_task,
         add_note, list_notes, search_notes,
     )
-    import json
 
     match name:
         case "get_weather":
@@ -290,7 +289,6 @@ async def _execute_tool(name: str, args: dict) -> dict:
             )
             action = args.get("action", "")
             target = args.get("target", "")
-            level  = args.get("level")
 
             match action:
                 case "open_app":

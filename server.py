@@ -25,11 +25,16 @@ from plugins.system_plugin import (
 )
 from plugins.productivity_plugin import (
     add_task, list_tasks, complete_task, delete_task,
-    add_note, list_notes, search_notes,
+    add_note as prod_add_note, list_notes as prod_list_notes, search_notes as prod_search_notes,
 )
 from plugins.vault_plugin import (
-    init_vault, create_note, get_note, update_note, delete_note,
-    list_notes as vault_list, search_notes as vault_search,
+    init_vault,
+    create_note  as vault_create_note,
+    get_note     as vault_get_note,
+    update_note  as vault_update_note,
+    delete_note  as vault_delete_note,
+    list_notes   as vault_list,
+    search_notes as vault_search,
     get_graph, get_daily_note, reindex_vault, get_stats as vault_stats,
 )
 
@@ -471,19 +476,19 @@ async def vault_notes(folder: str = None):
 
 @app.get("/api/vault/note/{title:path}")
 async def vault_get(title: str):
-    return get_note(title)
+    return vault_get_note(title)
 
 @app.post("/api/vault/note")
 async def vault_create(req: VaultNoteReq):
-    return create_note(req.title, req.content, req.folder, req.tags)
+    return vault_create_note(req.title, req.content, req.folder, req.tags)
 
 @app.put("/api/vault/note/{title:path}")
 async def vault_update(title: str, req: VaultUpdateReq):
-    return update_note(title, req.content)
+    return vault_update_note(title, req.content)
 
 @app.delete("/api/vault/note/{title:path}")
-async def vault_delete(title: str):
-    return delete_note(title)
+async def vault_delete_ep(title: str):
+    return vault_delete_note(title)
 
 @app.get("/api/vault/search")
 async def vault_search_ep(q: str):

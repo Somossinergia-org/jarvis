@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "JARVIS: Start Server",
+      "type": "shell",
+      "command": "python -m uvicorn server:app --host 0.0.0.0 --port 8000 --reload",
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "new" },
+      "problemMatcher": []
+    },
+    {
+      "label": "audit:repo",
+      "type": "shell",
+      "command": "python scripts/audit_repo.py",
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "audit:vault",
+      "type": "shell",
+      "command": "python -c \"from plugins.vault_plugin import get_stats, reindex_vault; print(reindex_vault()); print(get_stats())\"",
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "vault:reindex",
+      "type": "shell",
+      "command": "python -c \"from plugins.vault_plugin import reindex_vault; print(reindex_vault())\"",
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    }
+  ]
+}
